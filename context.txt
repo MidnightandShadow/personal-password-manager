@@ -2,9 +2,7 @@ Checklist:
 
 Login/signup -
 
-Sqlite -
-
-Encryption -
+Encryption - DONE
 
 Import accounts -
 
@@ -18,15 +16,9 @@ Generate password -
 
 GUI -
 
+Preferences -
+
 Optional goal: Chrome extension for autofill -
-
-
-Database structure:
-Users - id, fk:Login, fk:Account
-
-Logins - id, fk:User, email, password (should be encrypted when stored)
-
-Accounts - id, fk:User, name, login (encrypted), password (encrypted)
 
 Flow:
 Start screen has an empty text input labelled "email" and a button labelled "Log in/Sign up"
@@ -48,7 +40,9 @@ Upon logging in or successfully registering, the main accounts screen is display
 
 ------------------------------------------------------------------------------------------------------------------------
 Where I left off:
-Test scenarios for login, login class and stub methods
+How do we want to link Objects and db representations of the objects
+Account testing
+Starting GUI and logic for login screen and simple version of main program screen
 
 
 ------------------------------------------------------------------------------------------------------------------------
