@@ -2,6 +2,7 @@ import sqlite3
 from sqlite3 import Connection, Cursor, connect, Row
 from typing import Union, Tuple
 
+
 def get_login_password_by_email(email: str, connection: Connection) -> Union[str, None]:
     """
     Returns the login password for a User by a given email if a User with the email exists, else None.

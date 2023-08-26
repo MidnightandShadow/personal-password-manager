@@ -3,8 +3,8 @@ import sqlite3
 
 from argon2 import PasswordHasher
 
-from Database.db_constants import DBConstants
-from Utils.cryptography import encrypt_aes_256_cbc, derive_256_bit_key
+from config import DB_NAME
+from Utils.cryptography import encrypt_aes_256_gcm, derive_256_bit_key
 
 # This is a file to mess around with setting up an example database and querying it to simulate the structure
 # of the final product
@@ -14,13 +14,13 @@ from Utils.cryptography import encrypt_aes_256_cbc, derive_256_bit_key
 #
 # Accounts - id, fk:User, title (unique together with user), login, password (encrypted)
 
-db_file = "personal_password_manager.db"
+db_file = DB_NAME
 if os.path.isfile(db_file):
     os.remove(db_file)
 else:
     print(f'Error: {db_file} file not found')
 
-connection = sqlite3.connect(DBConstants.DB_NAME)
+connection = sqlite3.connect(DB_NAME)
 # connection.row_factory = sqlite3.Row
 
 cursor = connection.cursor()
@@ -45,8 +45,8 @@ cursor.execute("""CREATE TABLE accounts (
 # Create test passwords
 ph = PasswordHasher()
 hashed_password = ph.hash('TestPassword')
-key = derive_256_bit_key('TestPassword')
-encrypted_password, encrypted_password_iv = encrypt_aes_256_cbc(key, 'AccountPassword')
+salt, key = derive_256_bit_key('TestPassword')
+encrypted_password, nonce, tag = encrypt_aes_256_gcm(key, 'AccountPassword')
 
 # Create test users
 cursor.execute("INSERT INTO users VALUES (:id, :email, :password)", {'id': None,
