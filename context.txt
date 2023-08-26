@@ -40,7 +40,6 @@ Upon logging in or successfully registering, the main accounts screen is display
 
 ------------------------------------------------------------------------------------------------------------------------
 Where I left off:
-How do we want to link Objects and db representations of the objects
 Account testing
 Starting GUI and logic for login screen and simple version of main program screen
 
