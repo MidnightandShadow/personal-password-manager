@@ -12,7 +12,7 @@ from Utils.cryptography import encrypt_aes_256_gcm, derive_256_bit_key
 # Database structure:
 # Users - id, email (unique), password (should already be hashed when stored)
 #
-# Accounts - id, fk:User, title (unique together with user), login, password (encrypted)
+# Accounts - id, fk:User, title (unique together with user), login, password (encrypted), salt, nonce, tag
 
 db_file = DB_NAME
 if os.path.isfile(db_file):
@@ -36,6 +36,9 @@ cursor.execute("""CREATE TABLE accounts (
                 title TEXT,
                 login TEXT,
                 password BLOB,
+                salt BLOB,
+                nonce BLOB,
+                tag BLOB,
                 user_id INTEGER,
                 FOREIGN KEY(user_id) REFERENCES users(id),
                 UNIQUE(title, user_id)
@@ -58,38 +61,60 @@ cursor.execute("INSERT INTO users VALUES (:id, :email, :password)", {'id': None,
                                                                      'password': hashed_password})
 
 # Create test accounts
-cursor.execute("INSERT INTO accounts VALUES (:id, :title, :login, :password, :user_id)", {'id': None,
-                                                                     'title': 'Company 1',
-                                                                     'login': 'testemail@gmail.com', 'password':encrypted_password,
-                                                                                          'user_id': 1})
+cursor.execute("INSERT INTO accounts VALUES (:id, :title, :login, :password, :salt, :nonce, :tag, :user_id)",
+               {'id': None,
+                'title': 'Company 1',
+                'login': 'testemail@gmail.com',
+                'password': encrypted_password,
+                'salt': salt,
+                'nonce': nonce,
+                'tag': tag,
+                'user_id': 1})
 
-cursor.execute("INSERT INTO accounts VALUES (:id, :title, :login, :password, :user_id)", {'id': None,
-                                                                     'title': 'Company 2',
-                                                                     'login': 'otheremail@gmail.com', 'password':encrypted_password,
-                                                                                          'user_id': 1})
-
-# This should not work since it breaks unique(title, user_id)
-try:
-    cursor.execute("INSERT INTO accounts VALUES (:id, :title, :login, :password, :user_id)", {'id': None,
-                                                                         'title': 'Company 2',
-                                                                         'login': 'otheremail@gmail.com', 'password':encrypted_password,
-                                                                                              'user_id': 1})
-except sqlite3.IntegrityError as e:
-    print(f'This insert failed because of the following: {e} - UNIQUE(Company2, user_id 1)')
-
-cursor.execute("INSERT INTO accounts VALUES (:id, :title, :login, :password, :user_id)", {'id': None,
-                                                                     'title': 'Company 1',
-                                                                     'login': 'otheremail@gmail.com', 'password':encrypted_password,
-                                                                                          'user_id': 2})
+cursor.execute("INSERT INTO accounts VALUES (:id, :title, :login, :password, :salt, :nonce, :tag, :user_id)",
+               {'id': None,
+                'title': 'Company 2',
+                'login': 'otheremail@gmail.com',
+                'password': encrypted_password,
+                'salt': salt,
+                'nonce': nonce,
+                'tag': tag,
+                'user_id': 1})
 
 # This should not work since it breaks unique(title, user_id)
 try:
-    cursor.execute("INSERT INTO accounts VALUES (:id, :title, :login, :password, :user_id)", {'id': None,
-                                                                         'title': 'Company 2',
-                                                                         'login': 'otheremail@gmail.com', 'password':encrypted_password,
-                                                                                              'user_id': 2})
+    cursor.execute("INSERT INTO accounts VALUES (:id, :title, :login, :password, :salt, :nonce, :tag, :user_id)",
+                   {'id': None,
+                    'title': 'Company 2',
+                    'login': 'otheremail@gmail.com',
+                    'password': encrypted_password,
+                    'salt': salt,
+                    'nonce': nonce,
+                    'tag': tag,
+                    'user_id': 1})
 except sqlite3.IntegrityError as e:
-    print(f'This insert failed because of the following: {e}')
+    print(f'This insert failed as expected because of the following: {e} - UNIQUE(Company2, user_id 1)')
+
+cursor.execute("INSERT INTO accounts VALUES (:id, :title, :login, :password, :salt, :nonce, :tag, :user_id)",
+               {'id': None,
+                'title': 'Company 1',
+                'login': 'otheremail@gmail.com',
+                'password': encrypted_password,
+                'salt': salt,
+                'nonce': nonce,
+                'tag': tag,
+                'user_id': 2})
+
+
+cursor.execute("INSERT INTO accounts VALUES (:id, :title, :login, :password, :salt, :nonce, :tag, :user_id)",
+               {'id': None,
+                'title': 'Company 2',
+                'login': 'otheremail@gmail.com',
+                'password': encrypted_password,
+                'salt': salt,
+                'nonce': nonce,
+                'tag': tag,
+                'user_id': 2})
 
 connection.commit()
 

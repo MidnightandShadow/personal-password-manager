@@ -6,7 +6,7 @@ from Crypto.Util.Padding import pad, unpad
 from argon2 import PasswordHasher
 
 
-def derive_256_bit_key(password: Union[str, bytes], salt: Union[str, bytes] = None) -> Tuple[bytes, bytes]:
+def derive_256_bit_key(password: Union[str, bytes], salt: Union[str, bytes, None] = None) -> Tuple[bytes, bytes]:
     """
     Derives 256-bit key from the given password (and the given salt if provided) using Argon2, and returns the
     corresponding salt and key.
