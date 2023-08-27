@@ -6,13 +6,14 @@ from Crypto.Util.Padding import pad, unpad
 from argon2 import PasswordHasher
 
 
-def derive_256_bit_key(password: Union[str, bytes], salt: Union[str, bytes, None] = None) -> Tuple[bytes, bytes]:
+def derive_256_bit_salt_and_key(password: Union[str, bytes], salt: Union[str, bytes, None] = None) -> Tuple[bytes, bytes]:
     """
     Derives 256-bit key from the given password (and the given salt if provided) using Argon2, and returns the
     corresponding salt and key.
     :param salt: the salt to use to derive the password (automatically generated if none provided)
     :param password: the given password to derive the key from
     :return: the corresponding salt and the 256-bit key
+    :raise HashingError: if hashing fails
     """
     if isinstance(salt, str):
         salt = salt.encode('utf-8')
@@ -39,6 +40,7 @@ def encrypt_aes_256_gcm(key: bytes, plaintext: Union[bytes, str]) -> Tuple[bytes
     :param key: the key to use for encryption
     :param plaintext: the data to be encrypted
     :return: the ciphertext, the nonce, and the tag
+    :raise ValueError: if key length is incorrect
     """
     if isinstance(plaintext, str):
         plaintext = plaintext.encode('utf-8')
@@ -58,6 +60,8 @@ def decrypt_aes_256_gcm(key: bytes, ciphertext: Union[bytes, bytearray, memoryvi
     :param nonce: the cryptographic nonce
     :param tag: the MAC/authentication tag
     :return: the decrypted plaintext as a string
+    :raise ValueError: if key length is incorrect, wrong/differently-encrypted ciphertext provided, nonce is invalid,
+    or key is invalid
     """
     decrypt_cipher = AES.new(key=key, mode=AES.MODE_GCM, nonce=nonce)
     plaintext = unpad(padded_data=decrypt_cipher.decrypt_and_verify(ciphertext, tag), block_size=AES.block_size)

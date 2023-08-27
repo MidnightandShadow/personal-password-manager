@@ -4,7 +4,7 @@ import sqlite3
 from argon2 import PasswordHasher
 
 from config import DB_NAME
-from Utils.cryptography import encrypt_aes_256_gcm, derive_256_bit_key
+from Utils.cryptography import encrypt_aes_256_gcm, derive_256_bit_salt_and_key
 
 # This is a file to mess around with setting up an example database and querying it to simulate the structure
 # of the final product
@@ -12,7 +12,7 @@ from Utils.cryptography import encrypt_aes_256_gcm, derive_256_bit_key
 # Database structure:
 # Users - id, email (unique), password (should already be hashed when stored)
 #
-# Accounts - id, fk:User, title (unique together with user), login, password (encrypted), salt, nonce, tag
+# Accounts - id, fk:User, name (unique together with user), login, password (encrypted), salt, nonce, tag
 
 db_file = DB_NAME
 if os.path.isfile(db_file):
@@ -24,6 +24,7 @@ connection = sqlite3.connect(DB_NAME)
 # connection.row_factory = sqlite3.Row
 
 cursor = connection.cursor()
+cursor.execute("PRAGMA foreign_keys = ON;")
 
 cursor.execute("""CREATE TABLE users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -33,7 +34,7 @@ cursor.execute("""CREATE TABLE users (
 
 cursor.execute("""CREATE TABLE accounts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                title TEXT,
+                name TEXT,
                 login TEXT,
                 password BLOB,
                 salt BLOB,
@@ -41,14 +42,14 @@ cursor.execute("""CREATE TABLE accounts (
                 tag BLOB,
                 user_id INTEGER,
                 FOREIGN KEY(user_id) REFERENCES users(id),
-                UNIQUE(title, user_id)
+                UNIQUE(name, user_id)
                 ) STRICT ;""")
 
 
 # Create test passwords
 ph = PasswordHasher()
 hashed_password = ph.hash('TestPassword')
-salt, key = derive_256_bit_key('TestPassword')
+salt, key = derive_256_bit_salt_and_key('TestPassword')
 encrypted_password, nonce, tag = encrypt_aes_256_gcm(key, 'AccountPassword')
 
 # Create test users
@@ -61,9 +62,9 @@ cursor.execute("INSERT INTO users VALUES (:id, :email, :password)", {'id': None,
                                                                      'password': hashed_password})
 
 # Create test accounts
-cursor.execute("INSERT INTO accounts VALUES (:id, :title, :login, :password, :salt, :nonce, :tag, :user_id)",
+cursor.execute("INSERT INTO accounts VALUES (:id, :name, :login, :password, :salt, :nonce, :tag, :user_id)",
                {'id': None,
-                'title': 'Company 1',
+                'name': 'Company 1',
                 'login': 'testemail@gmail.com',
                 'password': encrypted_password,
                 'salt': salt,
@@ -71,9 +72,9 @@ cursor.execute("INSERT INTO accounts VALUES (:id, :title, :login, :password, :sa
                 'tag': tag,
                 'user_id': 1})
 
-cursor.execute("INSERT INTO accounts VALUES (:id, :title, :login, :password, :salt, :nonce, :tag, :user_id)",
+cursor.execute("INSERT INTO accounts VALUES (:id, :name, :login, :password, :salt, :nonce, :tag, :user_id)",
                {'id': None,
-                'title': 'Company 2',
+                'name': 'Company 2',
                 'login': 'otheremail@gmail.com',
                 'password': encrypted_password,
                 'salt': salt,
@@ -81,11 +82,11 @@ cursor.execute("INSERT INTO accounts VALUES (:id, :title, :login, :password, :sa
                 'tag': tag,
                 'user_id': 1})
 
-# This should not work since it breaks unique(title, user_id)
+# This should not work since it breaks unique(name, user_id)
 try:
-    cursor.execute("INSERT INTO accounts VALUES (:id, :title, :login, :password, :salt, :nonce, :tag, :user_id)",
+    cursor.execute("INSERT INTO accounts VALUES (:id, :name, :login, :password, :salt, :nonce, :tag, :user_id)",
                    {'id': None,
-                    'title': 'Company 2',
+                    'name': 'Company 2',
                     'login': 'otheremail@gmail.com',
                     'password': encrypted_password,
                     'salt': salt,
@@ -95,9 +96,9 @@ try:
 except sqlite3.IntegrityError as e:
     print(f'This insert failed as expected because of the following: {e} - UNIQUE(Company2, user_id 1)')
 
-cursor.execute("INSERT INTO accounts VALUES (:id, :title, :login, :password, :salt, :nonce, :tag, :user_id)",
+cursor.execute("INSERT INTO accounts VALUES (:id, :name, :login, :password, :salt, :nonce, :tag, :user_id)",
                {'id': None,
-                'title': 'Company 1',
+                'name': 'Company 1',
                 'login': 'otheremail@gmail.com',
                 'password': encrypted_password,
                 'salt': salt,
@@ -106,9 +107,9 @@ cursor.execute("INSERT INTO accounts VALUES (:id, :title, :login, :password, :sa
                 'user_id': 2})
 
 
-cursor.execute("INSERT INTO accounts VALUES (:id, :title, :login, :password, :salt, :nonce, :tag, :user_id)",
+cursor.execute("INSERT INTO accounts VALUES (:id, :name, :login, :password, :salt, :nonce, :tag, :user_id)",
                {'id': None,
-                'title': 'Company 2',
+                'name': 'Company 2',
                 'login': 'otheremail@gmail.com',
                 'password': encrypted_password,
                 'salt': salt,
@@ -124,11 +125,11 @@ cursor.execute("SELECT id FROM users WHERE email=:email", {'email': "secondemail
 user_id = cursor.fetchone()[0]
 company = 'Company 1'
 
-cursor.execute("SELECT id FROM accounts WHERE title=:title AND user_id=:user_id", {'title': company, 'user_id': user_id})
+cursor.execute("SELECT id FROM accounts WHERE name=:name AND user_id=:user_id", {'name': company, 'user_id': user_id})
 
 account_id = cursor.fetchall()[0][0]
 
-print(f'account_id where the title is {company} and the user_id is {user_id}: {account_id}')
+print(f'account_id where the name is {company} and the user_id is {user_id}: {account_id}')
 
 cursor.execute("SELECT * FROM accounts WHERE id=:id", {'id': account_id})
 print(f'Account with id {account_id}: {cursor.fetchone()}')
