@@ -1,9 +1,27 @@
 from sqlite3 import Connection, Cursor, connect, Row
-from typing import Union, Tuple
+from typing import Union, Tuple, List
 
 from argon2.exceptions import HashingError
 
 from Utils.cryptography import derive_256_bit_salt_and_key, decrypt_aes_256_gcm
+
+
+def get_user_id_by_email(email: str, connection: Connection) -> Union[int, None]:
+    """
+    Returns the corresponding user_id if a User with the given email exists, else None.
+    :param email: the email to query the Users table with
+    :param connection: the database connection to use
+    :return: the associated user_id if the User exists, None if not
+    """
+    cursor = connection.cursor()
+
+    cursor.execute("SELECT id FROM users WHERE email=?", (email,))
+
+    result = cursor.fetchone()
+
+    user_id = result[0] if result else None
+
+    return user_id
 
 
 def get_login_password_by_email(email: str, connection: Connection) -> Union[str, None]:
@@ -42,6 +60,24 @@ def get_account_id_by_account_name_and_user_id(account_name: str, user_id: int, 
     account_id = result[0] if result else None
 
     return account_id
+
+
+def get_all_account_names_and_logins_by_user(user_id: int, connection: Connection) -> Union[List[Tuple[str, str]], None]:
+    """
+    Returns the name and login of all Accounts for the User with the given id, else None.
+    :param user_id: the id of the associated user
+    :param connection: the database connection to use
+    :return: all name and login of all Accounts for the User with the given id, else None
+    """
+    cursor = connection.cursor()
+
+    cursor.execute("SELECT name, login FROM accounts WHERE user_id=?", (user_id,))
+
+    result = cursor.fetchall()
+
+    user_account_names_and_logins = result if result else None
+
+    return user_account_names_and_logins
 
 
 def get_decrypted_account_password(account_id: int, master_password: str, connection: Connection) -> str:
@@ -85,7 +121,7 @@ def db_setup() -> Tuple[Connection, Cursor]:
     :return: (connection, cursor), where connection and cursor relate to the created in-memory database
     """
     connection = connect(":memory:")
-    connection.row_factory = Row
+    # connection.row_factory = Row
     cursor = connection.cursor()
     cursor.execute("PRAGMA foreign_keys = ON;")
 

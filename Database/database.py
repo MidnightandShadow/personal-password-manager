@@ -48,39 +48,51 @@ cursor.execute("""CREATE TABLE accounts (
 
 # Create test passwords
 ph = PasswordHasher()
-hashed_password = ph.hash('TestPassword')
-salt, key = derive_256_bit_salt_and_key('TestPassword')
-encrypted_password, nonce, tag = encrypt_aes_256_gcm(key, 'AccountPassword')
+hashed_password = ph.hash('a')
+salt, key = derive_256_bit_salt_and_key('a')
+encrypted_password, nonce, tag = encrypt_aes_256_gcm(key, 'My word, this is an unordinarily long password, I wonder what it might look like in the table display')
+encrypted_password_2, nonce_2, tag_2 = encrypt_aes_256_gcm(key, 'OtherAccountPassword')
 
 # Create test users
 cursor.execute("INSERT INTO users VALUES (:id, :email, :password)", {'id': None,
-                                                                     'email': 'testemail@gmail.com',
+                                                                     'email': 'a',
                                                                      'password': hashed_password})
 
 cursor.execute("INSERT INTO users VALUES (:id, :email, :password)", {'id': None,
                                                                      'email': 'secondemail@gmail.com',
                                                                      'password': hashed_password})
 
-# Create test accounts
-cursor.execute("INSERT INTO accounts VALUES (:id, :name, :login, :password, :salt, :nonce, :tag, :user_id)",
-               {'id': None,
-                'name': 'Company 1',
-                'login': 'testemail@gmail.com',
-                'password': encrypted_password,
-                'salt': salt,
-                'nonce': nonce,
-                'tag': tag,
-                'user_id': 1})
+for i in range(1, 41):
+    cursor.execute("INSERT INTO accounts VALUES (:id, :name, :login, :password, :salt, :nonce, :tag, :user_id)",
+                   {'id': None,
+                    'name': f'Company {i}',
+                    'login': f'testemail{i}@gmail.com',
+                    'password': encrypted_password,
+                    'salt': salt,
+                    'nonce': nonce,
+                    'tag': tag,
+                    'user_id': 1})
 
-cursor.execute("INSERT INTO accounts VALUES (:id, :name, :login, :password, :salt, :nonce, :tag, :user_id)",
-               {'id': None,
-                'name': 'Company 2',
-                'login': 'otheremail@gmail.com',
-                'password': encrypted_password,
-                'salt': salt,
-                'nonce': nonce,
-                'tag': tag,
-                'user_id': 1})
+# Create test accounts
+# cursor.execute("INSERT INTO accounts VALUES (:id, :name, :login, :password, :salt, :nonce, :tag, :user_id)",
+#                {'id': None,
+#                 'name': 'Company 1',
+#                 'login': 'testemail@gmail.com',
+#                 'password': encrypted_password,
+#                 'salt': salt,
+#                 'nonce': nonce,
+#                 'tag': tag,
+#                 'user_id': 1})
+
+# cursor.execute("INSERT INTO accounts VALUES (:id, :name, :login, :password, :salt, :nonce, :tag, :user_id)",
+#                {'id': None,
+#                 'name': 'Company 2',
+#                 'login': 'otheremail@gmail.com',
+#                 'password': encrypted_password_2,
+#                 'salt': salt,
+#                 'nonce': nonce_2,
+#                 'tag': tag_2,
+#                 'user_id': 1})
 
 # This should not work since it breaks unique(name, user_id)
 try:
@@ -100,10 +112,10 @@ cursor.execute("INSERT INTO accounts VALUES (:id, :name, :login, :password, :sal
                {'id': None,
                 'name': 'Company 1',
                 'login': 'otheremail@gmail.com',
-                'password': encrypted_password,
+                'password': encrypted_password_2,
                 'salt': salt,
-                'nonce': nonce,
-                'tag': tag,
+                'nonce': nonce_2,
+                'tag': tag_2,
                 'user_id': 2})
 
 
