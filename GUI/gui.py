@@ -7,10 +7,9 @@ import pyperclip
 import customtkinter
 from tkinter import messagebox
 
-from Login.login import Login
 from config import DB_NAME
-from Utils.database import get_all_account_names_and_logins_by_user, get_decrypted_account_password, \
-    get_account_id_by_account_name_and_user_id, get_user_id_by_email, get_login_password_by_email
+from Utils.database import get_all_account_names_and_logins_by_user_id, get_decrypted_account_password, \
+    get_account_id_by_account_name_and_user_id, get_user_id_by_email, get_login_password_by_user_id, is_valid_login
 
 customtkinter.set_appearance_mode("System")  # Modes: "System" (standard), "Dark", "Light"
 customtkinter.set_default_color_theme("blue")  # Themes: "blue" (standard), "green", "dark-blue"
@@ -141,7 +140,7 @@ class App(customtkinter.CTk):
 
 
         # collect account data from database
-        accounts_name_and_login = get_all_account_names_and_logins_by_user(user_id=1, connection=self.connection)
+        accounts_name_and_login = get_all_account_names_and_logins_by_user_id(user_id=1, connection=self.connection)
 
         # Pad account name and username with the default hidden text string (actual passwords will replace the default
         # text only once clicked on)
@@ -259,7 +258,7 @@ class LoginGUI(customtkinter.CTkToplevel):
 
         if not user_id:
             messagebox.showwarning(title='Wrong username', message='Please check your username')
-        elif Login.is_valid_login(entered_username, entered_password, self.connection):
+        elif is_valid_login(entered_username, entered_password, self.connection):
             self.username = entered_username
             self.password = entered_password
             self.parent.setup_treeview()

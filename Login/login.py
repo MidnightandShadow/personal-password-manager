@@ -3,7 +3,7 @@ from sqlite3 import Connection
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 
-from Utils.database import get_login_password_by_email
+from Utils.database import get_login_password_by_user_id
 
 
 class Login:
@@ -25,21 +25,3 @@ class Login:
 
     def __repr__(self):
         return f"{self.__class__.__name__}({self.__email}, {self.__password})"
-
-    @staticmethod
-    def is_valid_login(email: str, password: str, connection: Connection) -> bool:
-        """
-        When a user attempts to sign in, verifies their account info. Returns True if there is a Login with a matching
-        email and password (using verification of the hash for the password). Returns False otherwise.
-        :param email: the given email when a user signs in
-        :param password: the given password when a user signs in (plaintext)
-        :param connection: the database connection to use
-        :return: True if there is an existing Login with the corresponding email and password, False otherwise
-        """
-        ph = PasswordHasher()
-        hashed_password = get_login_password_by_email(email=email, connection=connection)
-
-        try:
-            return hashed_password and ph.verify(hashed_password, password)
-        except VerifyMismatchError:
-            return False

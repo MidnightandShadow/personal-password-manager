@@ -13,7 +13,7 @@ def derive_256_bit_salt_and_key(password: Union[str, bytes], salt: Union[str, by
     :param salt: the salt to use to derive the password (automatically generated if none provided)
     :param password: the given password to derive the key from
     :return: the corresponding salt and the 256-bit key
-    :raise HashingError: if hashing fails
+    :raise argon2.exceptions.HashingError: if an error occurs during hashing
     """
     if isinstance(salt, str):
         salt = salt.encode('utf-8')

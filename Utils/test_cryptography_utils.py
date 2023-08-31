@@ -66,7 +66,8 @@ class CryptographyUtilsTests(unittest.TestCase):
         plaintext = b'plaintext'
         salt, key = derive_256_bit_salt_and_key('password')
         ciphertext, nonce, tag = encrypt_aes_256_gcm(key, plaintext)
-        decrypted_plaintext = decrypt_aes_256_gcm(key, ciphertext, nonce, tag)
+        key_2 = derive_256_bit_salt_and_key(password='password', salt=salt)[1]
+        decrypted_plaintext = decrypt_aes_256_gcm(key_2, ciphertext, nonce, tag)
 
         self.assertEquals(plaintext.decode('utf-8'), decrypted_plaintext)
 
@@ -78,7 +79,8 @@ class CryptographyUtilsTests(unittest.TestCase):
         plaintext = 'plaintext'
         salt, key = derive_256_bit_salt_and_key('password')
         ciphertext, nonce, tag = encrypt_aes_256_gcm(key, plaintext)
-        decrypted_plaintext = decrypt_aes_256_gcm(key, ciphertext, nonce, tag)
+        key_2 = derive_256_bit_salt_and_key(password='password', salt=salt)[1]
+        decrypted_plaintext = decrypt_aes_256_gcm(key_2, ciphertext, nonce, tag)
 
         self.assertEquals(plaintext, decrypted_plaintext)
 

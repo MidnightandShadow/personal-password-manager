@@ -1,9 +1,10 @@
 from sqlite3 import Connection, Cursor, connect, Row
-from typing import Union, Tuple, List
+from typing import Union, Tuple, List, Dict, Optional
 
-from argon2.exceptions import HashingError
+from argon2 import PasswordHasher
+from argon2.exceptions import HashingError, VerifyMismatchError, VerificationError, InvalidHashError
 
-from Utils.cryptography import derive_256_bit_salt_and_key, decrypt_aes_256_gcm
+from Utils.cryptography import derive_256_bit_salt_and_key, decrypt_aes_256_gcm, encrypt_aes_256_gcm
 
 
 def get_user_id_by_email(email: str, connection: Connection) -> Union[int, None]:
@@ -24,16 +25,16 @@ def get_user_id_by_email(email: str, connection: Connection) -> Union[int, None]
     return user_id
 
 
-def get_login_password_by_email(email: str, connection: Connection) -> Union[str, None]:
+def get_login_password_by_user_id(user_id: int, connection: Connection) -> Union[str, None]:
     """
-    Returns the hashed login password for a User by a given email if a User with the email exists, else None.
-    :param email: the email to query the Users table with
+    Returns the hashed login password for a User if the User with the given id exists, else None.
+    :param user_id: the id of the desired User
     :param connection: the database connection to use
     :return: the associated password if the User exists, None if not
     """
     cursor = connection.cursor()
 
-    cursor.execute("SELECT password FROM users WHERE email=?", (email,))
+    cursor.execute("SELECT password FROM users WHERE id=?", (user_id,))
 
     result = cursor.fetchone()
 
@@ -46,7 +47,7 @@ def get_account_id_by_account_name_and_user_id(account_name: str, user_id: int, 
     """
     Returns the id of the Account with the given account_name and user_id if the Account exists, else None.
     :param account_name: the name of the Account
-    :param user_id: the id of the associated user
+    :param user_id: the id of the associated User
     :param connection: the database connection to use
     :return: the id of the corresponding Account if it exists, else None
     """
@@ -62,12 +63,12 @@ def get_account_id_by_account_name_and_user_id(account_name: str, user_id: int, 
     return account_id
 
 
-def get_all_account_names_and_logins_by_user(user_id: int, connection: Connection) -> Union[List[Tuple[str, str]], None]:
+def get_all_account_names_and_logins_by_user_id(user_id: int, connection: Connection) -> Union[List[Tuple[str, str]], None]:
     """
-    Returns the name and login of all Accounts for the User with the given id, else None.
+    Returns the name and login of all Accounts for the User with the given id if they have Accounts, else None.
     :param user_id: the id of the associated user
     :param connection: the database connection to use
-    :return: all name and login of all Accounts for the User with the given id, else None
+    :return: all name and login of all Accounts for the User with the given id if they have Accounts, else None
     """
     cursor = connection.cursor()
 
@@ -82,28 +83,28 @@ def get_all_account_names_and_logins_by_user(user_id: int, connection: Connectio
 
 def get_decrypted_account_password(account_id: int, master_password: str, connection: Connection) -> str:
     """
-    Returns the decrypted account password for an Account given the account id and the user's master password.
-    :param account_id: the id of the account to decrypt the password for
-    :param master_password: the user's master password
+    Returns the decrypted account password for an Account given the Account id and the User's master password.
+    :param account_id: the id of the Account to decrypt the password for
+    :param master_password: the User's master password
     :param connection: the database connection to use
     :return: the decrypted Account password
-    :raise ValueError: if there is no account with the given id or if a cryptography error occurs
+    :raise ValueError: if there is no Account with the given id or if a cryptography error occurs
     """
     cursor = connection.cursor()
 
     cursor.execute("SELECT password, salt, nonce, tag FROM accounts WHERE id=?", (account_id,))
 
-    row = cursor.fetchone()
+    result = cursor.fetchone()
 
-    if not row:
+    if not result:
         raise ValueError('There is no account with the given id')
 
-    password, salt, nonce, tag = row
+    password, salt, nonce, tag = result
 
     try:
         key = derive_256_bit_salt_and_key(password=master_password, salt=salt)[1]
     except HashingError as e:
-        raise ValueError(f'An error occurred while generating the key: {e}')
+        raise HashingError(f'An error occurred while generating the key: {e}')
 
     try:
         plaintext = decrypt_aes_256_gcm(key=key, ciphertext=password, nonce=nonce, tag=tag)
@@ -111,6 +112,138 @@ def get_decrypted_account_password(account_id: int, master_password: str, connec
         raise ValueError(f'An error occurred while decrypting the password: {e}')
 
     return plaintext
+
+
+def get_all_decrypted_account_passwords_by_user_id(user_id: int, master_password: str, connection: Connection) -> Optional[Dict[int, str]]:
+    """
+    Returns a dictionary keyed by Account id with the decrypted Account passwords for all Accounts of the User with the
+    given user id. If the User does not have any Accounts, returns None.
+    :param user_id: the id of the User to get the decrypted Account passwords for
+    :param master_password: the user's master password
+    :param connection: the database connection to use
+    :return: a dictionary keyed by Account id with the corresponding decrypted Account passwords if the User has
+    Accounts, else None
+    :raise argon2.exceptions.HashingError: if an error occurs during hashing
+    :raise ValueError: if there is no User with the given id or if a cryptography error occurs
+    """
+    cursor = connection.cursor()
+
+    cursor.execute("SELECT EXISTS (SELECT 1 FROM users WHERE id=?)", (user_id,))
+
+    user_exists = cursor.fetchone()[0]
+
+    print(user_exists)
+
+    if not user_exists:
+        raise ValueError('There are no Users with the given user_id')
+
+    cursor.execute("SELECT id, password, salt, nonce, tag FROM accounts WHERE user_id=?", (user_id,))
+
+    result = cursor.fetchall()
+
+    if not result:
+        return None
+
+    decrypted_account_passwords = {}
+
+    for account_info in result:
+        account_id, password, salt, nonce, tag = account_info
+
+        try:
+            key = derive_256_bit_salt_and_key(password=master_password, salt=salt)[1]
+        except HashingError as e:
+            raise HashingError(f'An error occurred while generating the key: {e}')
+
+        try:
+            plaintext = decrypt_aes_256_gcm(key=key, ciphertext=password, nonce=nonce, tag=tag)
+        except ValueError as e:
+            raise ValueError(f'An error occurred while decrypting the password: {e}')
+
+        decrypted_account_passwords[account_id] = plaintext
+
+    return decrypted_account_passwords
+
+
+def is_valid_login(email: str, entered_password: str, connection: Connection) -> bool:
+    """
+    When a user attempts to sign in, verifies their account info. Returns True if there is a User with a matching
+    email and password (using verification of the hash for the password). Additionally, rehashes their password
+    if the argon2 default configuration changes and re-encrypts their Account passwords.
+    Returns False otherwise or raises a ValueError if there was a miscellaneous verification error.
+    :param email: the given email when a user signs in
+    :param entered_password: the given password when a user signs in (plaintext)
+    :param connection: the database connection to use
+    :return: True if there is an existing Login with the corresponding email and password, False otherwise
+    :raise argon2.exceptions.VerificationError: if there was a miscellaneous verification error (if the argon verification raised
+    VerificationError as opposed to VerifyMismatchError or InvalidHashError)
+    """
+    ph = PasswordHasher()
+    user_id = get_user_id_by_email(email=email, connection=connection)
+    hashed_password = get_login_password_by_user_id(user_id=user_id, connection=connection)
+
+    if not hashed_password:
+        return False
+
+    try:
+        is_valid = ph.verify(hash=hashed_password, password=entered_password)
+
+    except (VerifyMismatchError, InvalidHashError):
+        return False
+
+    except VerificationError as e:
+        raise VerificationError(f'The login could not be verified for miscellaneous reasons: {e}')
+
+    if ph.check_needs_rehash(hashed_password):
+        rehash_and_reencrypt_passwords(user_id=user_id, entered_password=entered_password, connection=connection)
+
+    return is_valid
+
+
+def rehash_and_reencrypt_passwords(user_id: int, entered_password: str, connection: Connection) -> None:
+    """
+    For the User with the given id:
+    1. Decrypts all their Account passwords using their original User hashed password
+    2. Rehashes their given User password (plaintext)
+    3. Replaces their previous password field in the User table with the new hashed password
+    4. Encrypts all their decrypted Account passwords using new keys
+    5. Replaces the Account passwords in the database with the newly encrypted passwords (other cryptographic info
+    is also updated)
+    :return: None
+    :raise argon2.exceptions.HashingError: if an error occurs during hashing
+    :raise ValueError: if an error occurs during encryption or decryption of the Account passwords
+    """
+    cursor = connection.cursor()
+
+    # Hashing steps
+    ph = PasswordHasher()
+
+    hashed_password = ph.hash(entered_password)
+
+    cursor.execute("UPDATE users SET password=:password WHERE id=:user_id", ({'password': hashed_password,
+                                                                              'user_id': user_id}))
+
+    # Encryption steps
+    plaintext_account_passwords = get_all_decrypted_account_passwords_by_user_id(user_id=user_id, master_password=entered_password, connection=connection)
+
+    # Return early if the User has no Accounts
+    if not plaintext_account_passwords:
+        return
+
+    ciphertext_account_passwords = []
+
+    for account_id, account_password in plaintext_account_passwords.items():
+        salt, key = derive_256_bit_salt_and_key(entered_password)
+        ciphertext, nonce, tag = encrypt_aes_256_gcm(key=key, plaintext=account_password)
+
+        ciphertext_account_password_dict = {'password': ciphertext, 'salt': salt, 'nonce': nonce, 'tag': tag,
+                                            'account_id': account_id}
+
+        ciphertext_account_passwords.append(ciphertext_account_password_dict)
+
+    update_query = "UPDATE accounts SET password=:password, salt=:salt, nonce=:nonce, tag=:tag WHERE id=:account_id"
+    cursor.executemany(update_query, ciphertext_account_passwords)
+
+    connection.commit()
 
 
 # Utils for testing:
