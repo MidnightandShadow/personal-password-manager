@@ -1,13 +1,116 @@
-from sqlite3 import Connection, Cursor, connect, Row
-from typing import Union, Tuple, List, Dict, Optional
+from sqlite3 import Connection, Cursor, connect
+from typing import Tuple, List, Dict, Optional
 
 from argon2 import PasswordHasher
 from argon2.exceptions import HashingError, VerifyMismatchError, VerificationError, InvalidHashError
 
 from Utils.cryptography import derive_256_bit_salt_and_key, decrypt_aes_256_gcm, encrypt_aes_256_gcm
+from re import match as regex_match
 
 
-def get_user_id_by_email(email: str, connection: Connection) -> Union[int, None]:
+def create_user(email: str, password: str, connection: Connection) -> int:
+    """
+    Creates a new User in the database with the given email and a hash of the given password, returns the
+    corresponding User id.
+    :return: the id of the created User
+    :raise ValueError: if the given email is invalid or an empty string, or if the given password is an empty string
+    :raise argon2.exceptions.HashingError: if hashing fails
+    """
+    if not email:
+        raise ValueError('The given email was an empty string')
+
+    valid_email_format = regex_match(pattern='^[_a-z0-9-]+(\\.[_a-z0-9-]+)*@[a-z0-9-]+(\\.[a-z0-9-]+)*(\\.[a-z]{2,4})$',
+                                     string=email)
+
+    if not valid_email_format:
+        raise ValueError(f'The given email ({email}) is invalid')
+
+    if not password:
+        raise ValueError('The given password was an empty string')
+
+    cursor = connection.cursor()
+
+    ph = PasswordHasher()
+    hashed_password = ph.hash(password)
+
+    cursor.execute("INSERT INTO users VALUES (:id, :email, :password) RETURNING id", {'id': None,
+                                                                                      'email': email,
+                                                                                      'password': hashed_password})
+
+    user_id = cursor.fetchone()[0]
+
+    connection.commit()
+    cursor.close()
+
+    return user_id
+
+
+def create_account(user_id: int, master_password: str, name: str, username: str, password: str, connection: Connection)\
+        -> int:
+    """
+    Creates a new Account in the database for the User with the given user_id and master_password using the given
+    Account name, username, and password. The password is encrypted before storage and the accompanying cryptographic
+    info is stored as well. Returns the corresponding Account id.
+    :return: the id of the created Account
+    :raise ValueError: if the given user_id is invalid or if the name, username, master_password, or password are empty
+    strings (or if raised by a called cryptographic function)
+    :raise argon2.exceptions.HashingError: if hashing fails
+    :raise argon2.exceptions.VerifyMismatchError: if the User's hashed_password is not valid for the given
+    master password
+    :raise argon2.exceptions.InvalidHashError: if hash is invalid
+    :raise argon2.exceptions.VerificationError: if there was a miscellaneous verification error (if the argon
+    verification raised VerificationError as opposed to VerifyMismatchError or InvalidHashError)
+    """
+    cursor = connection.cursor()
+    
+    cursor.execute("SELECT EXISTS (SELECT 1 FROM users WHERE id=?)", (user_id,))
+
+    user_exists = cursor.fetchone()[0]
+
+    if not user_exists:
+        raise ValueError(f'There is no User with the given user_id ({user_id})')
+
+    if not master_password:
+        raise ValueError('The given master_password was an empty string')
+    
+    if not name:
+        raise ValueError('The given name was an empty string')
+
+    if not username:
+        raise ValueError('The given username was an empty string')
+
+    if not password:
+        raise ValueError('The given password was an empty string')
+
+    ph = PasswordHasher()
+
+    hashed_password = get_login_password_by_user_id(user_id, connection)
+
+    ph.verify(hash=hashed_password, password=master_password)
+
+    salt, key = derive_256_bit_salt_and_key(master_password)
+    encrypted_password, nonce, tag = encrypt_aes_256_gcm(key, password)
+
+    cursor.execute("""INSERT INTO accounts VALUES (:id, :name, :username, :password, :salt, :nonce, :tag, :user_id)
+    RETURNING id""",
+                   {'id': None,
+                    'name': name,
+                    'username': username,
+                    'password': encrypted_password,
+                    'salt': salt,
+                    'nonce': nonce,
+                    'tag': tag,
+                    'user_id': user_id})
+
+    account_id = cursor.fetchone()[0]
+
+    connection.commit()
+    cursor.close()
+
+    return account_id
+
+
+def get_user_id_by_email(email: str, connection: Connection) -> Optional[int]:
     """
     Returns the corresponding user_id if a User with the given email exists, else None.
     :param email: the email to query the Users table with
@@ -25,7 +128,7 @@ def get_user_id_by_email(email: str, connection: Connection) -> Union[int, None]
     return user_id
 
 
-def get_login_password_by_user_id(user_id: int, connection: Connection) -> Union[str, None]:
+def get_login_password_by_user_id(user_id: int, connection: Connection) -> Optional[str]:
     """
     Returns the hashed login password for a User if the User with the given id exists, else None.
     :param user_id: the id of the desired User
@@ -43,7 +146,8 @@ def get_login_password_by_user_id(user_id: int, connection: Connection) -> Union
     return password
 
 
-def get_account_id_by_account_name_and_user_id(account_name: str, user_id: int, connection: Connection) -> Union[int, None]:
+def get_account_id_by_account_name_and_user_id(account_name: str, user_id: int, connection: Connection)\
+        -> Optional[int]:
     """
     Returns the id of the Account with the given account_name and user_id if the Account exists, else None.
     :param account_name: the name of the Account
@@ -63,22 +167,42 @@ def get_account_id_by_account_name_and_user_id(account_name: str, user_id: int, 
     return account_id
 
 
-def get_all_account_names_and_logins_by_user_id(user_id: int, connection: Connection) -> Union[List[Tuple[str, str]], None]:
+def get_account_name_and_username_by_account_id(account_id: int, connection: Connection)\
+        -> Optional[Tuple[str, str]]:
     """
-    Returns the name and login of all Accounts for the User with the given id if they have Accounts, else None.
-    :param user_id: the id of the associated user
+    Returns the name and username of the Account with the given id if the Account exists, else None.
+    :param account_id: the id of the Account to be queried
     :param connection: the database connection to use
-    :return: all name and login of all Accounts for the User with the given id if they have Accounts, else None
+    :return: the name and username of the Account with the given id if the Account exists, else None
     """
     cursor = connection.cursor()
 
-    cursor.execute("SELECT name, login FROM accounts WHERE user_id=?", (user_id,))
+    cursor.execute("SELECT name, username FROM accounts WHERE id=?", (account_id, ))
+
+    result = cursor.fetchone()
+
+    user_account_name_and_username = result if result else None
+
+    return user_account_name_and_username
+
+
+def get_all_account_names_and_usernames_by_user_id(user_id: int, connection: Connection)\
+        -> Optional[List[Tuple[str, str]]]:
+    """
+    Returns the name and username of all Accounts for the User with the given id if they have Accounts, else None.
+    :param user_id: the id of the associated user
+    :param connection: the database connection to use
+    :return: all name and username of all Accounts for the User with the given id if they have Accounts, else None
+    """
+    cursor = connection.cursor()
+
+    cursor.execute("SELECT name, username FROM accounts WHERE user_id=?", (user_id,))
 
     result = cursor.fetchall()
 
-    user_account_names_and_logins = result if result else None
+    user_account_names_and_usernames = result if result else None
 
-    return user_account_names_and_logins
+    return user_account_names_and_usernames
 
 
 def get_decrypted_account_password(account_id: int, master_password: str, connection: Connection) -> str:
@@ -97,7 +221,7 @@ def get_decrypted_account_password(account_id: int, master_password: str, connec
     result = cursor.fetchone()
 
     if not result:
-        raise ValueError('There is no account with the given id')
+        raise ValueError(f'There is no account with the given id ({account_id})')
 
     password, salt, nonce, tag = result
 
@@ -114,7 +238,8 @@ def get_decrypted_account_password(account_id: int, master_password: str, connec
     return plaintext
 
 
-def get_all_decrypted_account_passwords_by_user_id(user_id: int, master_password: str, connection: Connection) -> Optional[Dict[int, str]]:
+def get_all_decrypted_account_passwords_by_user_id(user_id: int, master_password: str, connection: Connection)\
+        -> Optional[Dict[int, str]]:
     """
     Returns a dictionary keyed by Account id with the decrypted Account passwords for all Accounts of the User with the
     given user id. If the User does not have any Accounts, returns None.
@@ -132,10 +257,8 @@ def get_all_decrypted_account_passwords_by_user_id(user_id: int, master_password
 
     user_exists = cursor.fetchone()[0]
 
-    print(user_exists)
-
     if not user_exists:
-        raise ValueError('There are no Users with the given user_id')
+        raise ValueError(f'There is no User with the given user_id ({user_id})')
 
     cursor.execute("SELECT id, password, salt, nonce, tag FROM accounts WHERE user_id=?", (user_id,))
 
@@ -173,9 +296,9 @@ def is_valid_login(email: str, entered_password: str, connection: Connection) ->
     :param email: the given email when a user signs in
     :param entered_password: the given password when a user signs in (plaintext)
     :param connection: the database connection to use
-    :return: True if there is an existing Login with the corresponding email and password, False otherwise
-    :raise argon2.exceptions.VerificationError: if there was a miscellaneous verification error (if the argon verification raised
-    VerificationError as opposed to VerifyMismatchError or InvalidHashError)
+    :return: True if there is an existing User with the corresponding email and password, False otherwise
+    :raise argon2.exceptions.VerificationError: if there was a miscellaneous verification error (if the argon
+    verification raised VerificationError as opposed to VerifyMismatchError or InvalidHashError)
     """
     ph = PasswordHasher()
     user_id = get_user_id_by_email(email=email, connection=connection)
@@ -223,7 +346,9 @@ def rehash_and_reencrypt_passwords(user_id: int, entered_password: str, connecti
                                                                               'user_id': user_id}))
 
     # Encryption steps
-    plaintext_account_passwords = get_all_decrypted_account_passwords_by_user_id(user_id=user_id, master_password=entered_password, connection=connection)
+    plaintext_account_passwords = get_all_decrypted_account_passwords_by_user_id(user_id=user_id,
+                                                                                 master_password=entered_password,
+                                                                                 connection=connection)
 
     # Return early if the User has no Accounts
     if not plaintext_account_passwords:
@@ -254,25 +379,24 @@ def db_setup() -> Tuple[Connection, Cursor]:
     :return: (connection, cursor), where connection and cursor relate to the created in-memory database
     """
     connection = connect(":memory:")
-    # connection.row_factory = Row
     cursor = connection.cursor()
     cursor.execute("PRAGMA foreign_keys = ON;")
 
-    cursor.execute("""CREATE TABLE IF NOT EXISTS users (
+    cursor.execute("""CREATE TABLE users (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    email TEXT UNIQUE,
-                    password TEXT
+                    email TEXT UNIQUE NOT NULL,
+                    password TEXT NOT NULL
                     ) STRICT ;""")
 
-    cursor.execute("""CREATE TABLE IF NOT EXISTS accounts (
+    cursor.execute("""CREATE TABLE accounts (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT,
-                    login TEXT,
-                    password BLOB,
-                    salt BLOB,
-                    nonce BLOB,
-                    tag BLOB,
-                    user_id INTEGER,
+                    name TEXT NOT NULL,
+                    username TEXT NOT NULL,
+                    password BLOB NOT NULL,
+                    salt BLOB NOT NULL,
+                    nonce BLOB NOT NULL,
+                    tag BLOB NOT NULL,
+                    user_id INTEGER NOT NULL,
                     FOREIGN KEY(user_id) REFERENCES users(id),
                     UNIQUE(name, user_id)
                     ) STRICT ;""")

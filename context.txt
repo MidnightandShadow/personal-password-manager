@@ -40,19 +40,12 @@ Upon logging in or successfully registering, the main accounts screen is display
 
 ------------------------------------------------------------------------------------------------------------------------
 Where I left off:
-Refactor the Login field 'email' to just be a standard 'username': no change in what the field is, just the name
-and some of the test examples.
-
-Refactor the account table login to be username (only a change in name, not anything else)
-
-Designing how to handle inputting object information into the db without using an ORM:
-Method in the respective class? Since all used methods so far are static, no python objects and only database and Utils?
-
 Fixing GUI resizing during fullscreen mode, adding small popup (not a dialogue) for "copied to clipboard" when
 a username or password is clicked
 
-Editing login to have flow for sign up (if the given username is not in the database, prompt user with a dialogue
-for "username not recognized: would you like to sign up?"
+In add_account_button_event() in gui.py:
+Add validation/retry when not inputting anything and retry when inputting an existing account name (saying they must be
+unique)
 
 
 ------------------------------------------------------------------------------------------------------------------------

@@ -6,8 +6,10 @@ from argon2 import PasswordHasher
 
 from Utils.cryptography import derive_256_bit_salt_and_key, encrypt_aes_256_gcm
 from Utils.database import get_login_password_by_user_id, get_account_id_by_account_name_and_user_id, db_setup, \
-    get_decrypted_account_password, get_all_account_names_and_logins_by_user_id, get_user_id_by_email, is_valid_login, \
-    get_all_decrypted_account_passwords_by_user_id, rehash_and_reencrypt_passwords
+    get_decrypted_account_password, get_all_account_names_and_usernames_by_user_id, get_user_id_by_email, \
+    is_valid_login, \
+    get_all_decrypted_account_passwords_by_user_id, rehash_and_reencrypt_passwords, create_user, create_account, \
+    get_account_name_and_username_by_account_id
 
 
 class DatabaseUtilsTests(unittest.TestCase):
@@ -25,6 +27,183 @@ class DatabaseUtilsTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.cursor.close()
         self.connection.close()
+
+    def test_create_user_successful(self):
+        """
+        Creates a User with the given inputs, their id is returned, and that User can then be queried for.
+        """
+        ph = PasswordHasher()
+        email = 'newemail@gmail.com'
+        password = 'ShortPassword'
+
+        user_id = create_user(email=email, password=password, connection=self.connection)
+
+        self.cursor.execute("SELECT * FROM users WHERE id=?", (user_id, ))
+
+        queried_user_email, queried_hashed_password = self.cursor.fetchone()[1:3]
+
+        self.assertEquals(email, queried_user_email)
+        self.assertTrue(ph.verify(hash=queried_hashed_password, password=password))
+
+    def test_create_user_invalid_email(self):
+        """
+        Raises ValueError when the given email is invalid
+        """
+        emails = ['not-email@com', '@gmail.com',  'not-email@.com', 'not-email.com', '@.', 'not-email', 'not-email.']
+        password = 'ShortPassword'
+
+        for email in emails:
+            try:
+                create_user(email=email, password=password, connection=self.connection)
+            except ValueError as e:
+                self.assertEquals(f'The given email ({email}) is invalid', str(e))
+            else:
+                self.fail('ValueError should have been raised for invalid email')
+
+    def test_create_user_empty_email(self):
+        """
+        Raises ValueError when the given email is an empty string
+        """
+        email = ''
+        password = 'ShortPassword'
+
+        try:
+            create_user(email=email, password=password, connection=self.connection)
+        except ValueError as e:
+            self.assertEquals('The given email was an empty string', str(e))
+        else:
+            self.fail('ValueError should have been raised for empty email')
+
+    def test_create_user_empty_password(self):
+        """
+        Raises ValueError when the given email is an empty string
+        """
+        email = 'first-last@gmail.com'
+        password = ''
+
+        try:
+            create_user(email=email, password=password, connection=self.connection)
+        except ValueError as e:
+            self.assertEquals('The given password was an empty string', str(e))
+        else:
+            self.fail('ValueError should have been raised for empty password')
+
+    def test_create_account_successful(self):
+        """
+        Creates an Account with the given inputs, the Account id is returned, and that Account can then be queried for.
+        """
+        master_password = 'MasterPassword'
+        name = 'Google'
+        username = 'username@gmail.com'
+        password = 'TheAccountPassword'
+
+        user_id = create_user(email='new-email@gmail.com', password=master_password, connection=self.connection)
+
+        account_id = create_account(user_id=user_id, master_password=master_password, name=name, username=username,
+                                    password=password, connection=self.connection)
+
+        self.cursor.execute("SELECT * FROM accounts WHERE id=?", (account_id, ))
+
+        queried_name, queried_username, queried_encrypted_password, queried_salt, queried_nonce, queried_tag,\
+            queried_user_id = self.cursor.fetchone()[1:]
+
+        self.assertEquals(name, queried_name)
+        self.assertEquals(username, queried_username)
+        self.assertEquals(password, get_decrypted_account_password(account_id, master_password, self.connection))
+        self.assertEquals(user_id, queried_user_id)
+
+    def test_create_account_non_existent_user_id(self):
+        """
+        Fails to create an Account due to receiving a non-existent user id.
+        """
+        master_password = 'MasterPassword'
+        name = 'Google'
+        username = 'username@gmail.com'
+        password = 'TheAccountPassword'
+
+        try:
+            create_account(user_id=4500, master_password=master_password, name=name, username=username,
+                           password=password, connection=self.connection)
+        except ValueError as e:
+            self.assertEquals('There is no User with the given user_id (4500)', str(e))
+        else:
+            self.fail('Should have failed due to receiving a non-existent user_id')
+
+    def test_create_account_empty_name(self):
+        """
+        Fails to create an Account due to receiving an empty string for the given name.
+        """
+        master_password = 'MasterPassword'
+        name = ''
+        username = 'username@gmail.com'
+        password = 'TheAccountPassword'
+
+        user_id = create_user(email='new-email@gmail.com', password=master_password, connection=self.connection)
+
+        try:
+            create_account(user_id=user_id, master_password=master_password, name=name, username=username,
+                           password=password, connection=self.connection)
+        except ValueError as e:
+            self.assertEquals('The given name was an empty string', str(e))
+        else:
+            self.fail('Should have failed due to receiving an empty string for the given name')
+
+    def test_create_account_empty_username(self):
+        """
+        Fails to create an Account due to receiving an empty string for the given name.
+        """
+        master_password = 'MasterPassword'
+        name = 'Google'
+        username = ''
+        password = 'TheAccountPassword'
+
+        user_id = create_user(email='new-email@gmail.com', password=master_password, connection=self.connection)
+
+        try:
+            create_account(user_id=user_id, master_password=master_password, name=name, username=username,
+                           password=password, connection=self.connection)
+        except ValueError as e:
+            self.assertEquals('The given username was an empty string', str(e))
+        else:
+            self.fail('Should have failed due to receiving an empty string for the given username')
+
+    def test_create_account_empty_password(self):
+        """
+        Fails to create an Account due to receiving an empty string for the given Account password.
+        """
+        master_password = 'MasterPassword'
+        name = 'Google'
+        username = 'new-email@gmail.com'
+        password = ''
+
+        user_id = create_user(email='new-email@gmail.com', password=master_password, connection=self.connection)
+
+        try:
+            create_account(user_id=user_id, master_password=master_password, name=name, username=username,
+                           password=password, connection=self.connection)
+        except ValueError as e:
+            self.assertEquals('The given password was an empty string', str(e))
+        else:
+            self.fail('Should have failed due to receiving an empty string for the given password')
+
+    def test_create_account_empty_master_password(self):
+        """
+        Fails to create an Account due to receiving an empty string for the given master_password.
+        """
+        master_password = ''
+        name = 'Google'
+        username = 'new-email@gmail.com'
+        password = 'TheAccountPassword'
+
+        user_id = create_user(email='new-email@gmail.com', password='Master Password', connection=self.connection)
+
+        try:
+            create_account(user_id=user_id, master_password=master_password, name=name, username=username,
+                           password=password, connection=self.connection)
+        except ValueError as e:
+            self.assertEquals('The given master_password was an empty string', str(e))
+        else:
+            self.fail('Should have failed due to receiving an empty string for the given master_password')
 
     def test_get_user_id_by_email_successful(self):
         """
@@ -66,30 +245,30 @@ class DatabaseUtilsTests(unittest.TestCase):
         """
         When an Account with the given name and foreign key user_id exists, the corresponding account id is returned.
         """
-        self.cursor.execute("INSERT INTO accounts VALUES (:id, :name, :login, :password, :salt, :nonce, :tag, :user_id)",
+        self.cursor.execute("INSERT INTO accounts VALUES (:id, :name, :username, :password, :salt, :nonce, :tag, :user_id)",
                        {'id': None,
                         'name': 'Company 1',
-                        'login': 'testemail@gmail.com',
+                        'username': 'testemail@gmail.com',
                         'password': b'password',
                         'salt': b'salt',
                         'nonce': b'nonce',
                         'tag': b'tag',
                         'user_id': 1})
 
-        self.cursor.execute("INSERT INTO accounts VALUES (:id, :name, :login, :password, :salt, :nonce, :tag, :user_id)",
+        self.cursor.execute("INSERT INTO accounts VALUES (:id, :name, :username, :password, :salt, :nonce, :tag, :user_id)",
                        {'id': None,
                         'name': 'Company 2',
-                        'login': 'testemail@gmail.com',
+                        'username': 'testemail@gmail.com',
                         'password': b'password',
                         'salt': b'salt',
                         'nonce': b'nonce',
                         'tag': b'tag',
                         'user_id': 1})
 
-        self.cursor.execute("INSERT INTO accounts VALUES (:id, :name, :login, :password, :salt, :nonce, :tag, :user_id)",
+        self.cursor.execute("INSERT INTO accounts VALUES (:id, :name, :username, :password, :salt, :nonce, :tag, :user_id)",
                        {'id': None,
                         'name': 'Company 1',
-                        'login': 'otheremail@gmail.com',
+                        'username': 'otheremail@gmail.com',
                         'password': b'password',
                         'salt': b'salt',
                         'nonce': b'nonce',
@@ -108,10 +287,10 @@ class DatabaseUtilsTests(unittest.TestCase):
         """
         When an Account with the given name and foreign key user_id does not exist, None is returned.
         """
-        self.cursor.execute("INSERT INTO accounts VALUES (:id, :name, :login, :password, :salt, :nonce, :tag, :user_id)",
+        self.cursor.execute("INSERT INTO accounts VALUES (:id, :name, :username, :password, :salt, :nonce, :tag, :user_id)",
                        {'id': None,
                         'name': 'Company 1',
-                        'login': 'testemail@gmail.com',
+                        'username': 'testemail@gmail.com',
                         'password': b'password',
                         'salt': b'salt',
                         'nonce': b'nonce',
@@ -122,53 +301,92 @@ class DatabaseUtilsTests(unittest.TestCase):
 
         self.assertIsNone(account_id)
 
-    def test_get_all_account_names_and_logins_by_user_successful(self):
+    def test_get_account_name_and_username_by_account_id_successful(self):
         """
-        When a User has associated Accounts, the name and login of each are returned.
+        When an Account with the given id exists, returns the name and username.
         """
-        self.cursor.execute("INSERT INTO accounts VALUES (:id, :name, :login, :password, :salt, :nonce, :tag, :user_id)",
+        self.cursor.execute("INSERT INTO accounts VALUES (:id, :name, :username, :password, :salt, :nonce, :tag, :user_id)",
                        {'id': None,
                         'name': 'Company 1',
-                        'login': 'testemail@gmail.com',
+                        'username': 'testemail@gmail.com',
                         'password': b'password',
                         'salt': b'salt',
                         'nonce': b'nonce',
                         'tag': b'tag',
                         'user_id': 1})
 
-        self.cursor.execute("INSERT INTO accounts VALUES (:id, :name, :login, :password, :salt, :nonce, :tag, :user_id)",
+        self.cursor.execute("INSERT INTO accounts VALUES (:id, :name, :username, :password, :salt, :nonce, :tag, :user_id)",
                        {'id': None,
                         'name': 'Company 2',
-                        'login': 'testemail@gmail.com',
-                        'password': b'password',
-                        'salt': b'salt',
-                        'nonce': b'nonce',
-                        'tag': b'tag',
-                        'user_id': 1})
-
-        self.cursor.execute("INSERT INTO accounts VALUES (:id, :name, :login, :password, :salt, :nonce, :tag, :user_id)",
-                       {'id': None,
-                        'name': 'Company 1',
-                        'login': 'otheremail@gmail.com',
+                        'username': 'otheremail@gmail.com',
                         'password': b'password',
                         'salt': b'salt',
                         'nonce': b'nonce',
                         'tag': b'tag',
                         'user_id': 2})
 
-        user_1_account_names_and_logins = get_all_account_names_and_logins_by_user_id(user_id=1, connection=self.connection)
-        user_2_account_names_and_logins = get_all_account_names_and_logins_by_user_id(user_id=2, connection=self.connection)
+        account_name_and_username = get_account_name_and_username_by_account_id(account_id=1, connection=self.connection)
+        account_name_and_username_2 = get_account_name_and_username_by_account_id(account_id=2, connection=self.connection)
 
-        self.assertEquals([('Company 1', 'testemail@gmail.com'), ('Company 2', 'testemail@gmail.com'),], user_1_account_names_and_logins)
-        self.assertEquals([('Company 1', 'otheremail@gmail.com'),], user_2_account_names_and_logins)
+        self.assertEquals(('Company 1', 'testemail@gmail.com'), account_name_and_username)
+        self.assertEquals(('Company 2', 'otheremail@gmail.com'), account_name_and_username_2)
 
-    def test_get_all_account_names_and_logins_by_user_non_existent(self):
+    def test_get_account_name_and_username_by_account_id_non_existent(self):
+        """
+        When there is no existing Account with the given id, returns None.
+        """
+        account_name_and_username = get_account_name_and_username_by_account_id(account_id=1, connection=self.connection)
+
+        self.assertIsNone(account_name_and_username)
+
+
+    def test_get_all_account_names_and_usernames_by_user_successful(self):
+        """
+        When a User has associated Accounts, the name and username of each are returned.
+        """
+        self.cursor.execute("INSERT INTO accounts VALUES (:id, :name, :username, :password, :salt, :nonce, :tag, :user_id)",
+                       {'id': None,
+                        'name': 'Company 1',
+                        'username': 'testemail@gmail.com',
+                        'password': b'password',
+                        'salt': b'salt',
+                        'nonce': b'nonce',
+                        'tag': b'tag',
+                        'user_id': 1})
+
+        self.cursor.execute("INSERT INTO accounts VALUES (:id, :name, :username, :password, :salt, :nonce, :tag, :user_id)",
+                       {'id': None,
+                        'name': 'Company 2',
+                        'username': 'testemail@gmail.com',
+                        'password': b'password',
+                        'salt': b'salt',
+                        'nonce': b'nonce',
+                        'tag': b'tag',
+                        'user_id': 1})
+
+        self.cursor.execute("INSERT INTO accounts VALUES (:id, :name, :username, :password, :salt, :nonce, :tag, :user_id)",
+                       {'id': None,
+                        'name': 'Company 1',
+                        'username': 'otheremail@gmail.com',
+                        'password': b'password',
+                        'salt': b'salt',
+                        'nonce': b'nonce',
+                        'tag': b'tag',
+                        'user_id': 2})
+
+        user_1_account_names_and_usernames = get_all_account_names_and_usernames_by_user_id(user_id=1, connection=self.connection)
+        user_2_account_names_and_usernames = get_all_account_names_and_usernames_by_user_id(user_id=2, connection=self.connection)
+
+        self.assertEquals([('Company 1', 'testemail@gmail.com'), ('Company 2', 'testemail@gmail.com'),], user_1_account_names_and_usernames)
+        self.assertEquals([('Company 1', 'otheremail@gmail.com'),], user_2_account_names_and_usernames)
+
+    def test_get_all_account_names_and_usernames_by_user_non_existent(self):
         """
         When a User has no associated Accounts, None is returned.
         """
-        user_1_account_names_and_logins = get_all_account_names_and_logins_by_user_id(user_id=1, connection=self.connection)
+        user_1_account_names_and_usernames = get_all_account_names_and_usernames_by_user_id(user_id=1, connection=self.connection)
 
-        self.assertIsNone(user_1_account_names_and_logins)
+        self.assertIsNone(user_1_account_names_and_usernames)
 
     def get_decrypted_account_password_set_up(self) -> Tuple[str, str, str, int, int, int]:
         """
@@ -237,7 +455,7 @@ class DatabaseUtilsTests(unittest.TestCase):
         try:
             get_decrypted_account_password(account_id=44, master_password=master_password, connection=self.connection)
         except ValueError as e:
-            self.assertEquals('There is no account with the given id', str(e))
+            self.assertEquals('There is no account with the given id (44)', str(e))
         else:
             self.fail('Value error was not raised when the account was non-existent')
 
@@ -274,7 +492,7 @@ class DatabaseUtilsTests(unittest.TestCase):
         try:
             get_all_decrypted_account_passwords_by_user_id(user_id=814, master_password=master_password, connection=self.connection)
         except ValueError as e:
-            self.assertEquals('There are no Users with the given user_id', str(e))
+            self.assertEquals('There is no User with the given user_id (814)', str(e))
         else:
             self.fail('Value error was not raised when the User was non-existent')
 
@@ -402,7 +620,7 @@ class DatabaseUtilsTests(unittest.TestCase):
         try:
             rehash_and_reencrypt_passwords(user_id=3400, entered_password='master_password', connection=self.connection)
         except ValueError as e:
-            self.assertEquals('There are no Users with the given user_id', str(e))
+            self.assertEquals('There is no User with the given user_id (3400)', str(e))
         else:
             self.fail('A ValueError should have been returned since there is no User with the given id')
 

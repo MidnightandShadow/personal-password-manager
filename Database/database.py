@@ -10,9 +10,10 @@ from Utils.cryptography import encrypt_aes_256_gcm, derive_256_bit_salt_and_key
 # of the final product
 
 # Database structure:
-# Users - id, email (unique), password (should already be hashed when stored)
+# Users - id, email (unique), password (hashed)
 #
-# Accounts - id, fk:User, name (unique together with user), login, password (encrypted), salt, nonce, tag
+# Accounts - id, name (unique together with User), username, password (ciphertext),
+# salt (of the hash used to derive the encryption key from the plaintext User password), nonce, tag, fk:User (user_id)
 
 db_file = DB_NAME
 if os.path.isfile(db_file):
@@ -21,26 +22,25 @@ else:
     print(f'Error: {db_file} file not found')
 
 connection = sqlite3.connect(DB_NAME)
-# connection.row_factory = sqlite3.Row
 
 cursor = connection.cursor()
 cursor.execute("PRAGMA foreign_keys = ON;")
 
 cursor.execute("""CREATE TABLE users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                email TEXT UNIQUE,
-                password TEXT
+                email TEXT UNIQUE NOT NULL,
+                password TEXT NOT NULL
                 ) STRICT ;""")
 
 cursor.execute("""CREATE TABLE accounts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT,
-                login TEXT,
-                password BLOB,
-                salt BLOB,
-                nonce BLOB,
-                tag BLOB,
-                user_id INTEGER,
+                name TEXT NOT NULL,
+                username TEXT NOT NULL,
+                password BLOB NOT NULL,
+                salt BLOB NOT NULL,
+                nonce BLOB NOT NULL,
+                tag BLOB NOT NULL,
+                user_id INTEGER NOT NULL,
                 FOREIGN KEY(user_id) REFERENCES users(id),
                 UNIQUE(name, user_id)
                 ) STRICT ;""")
@@ -50,7 +50,10 @@ cursor.execute("""CREATE TABLE accounts (
 ph = PasswordHasher()
 hashed_password = ph.hash('a')
 salt, key = derive_256_bit_salt_and_key('a')
-encrypted_password, nonce, tag = encrypt_aes_256_gcm(key, 'My word, this is an unordinarily long password, I wonder what it might look like in the table display')
+encrypted_password, nonce, tag = encrypt_aes_256_gcm(key, 'My word, this is an unordinarily long password, '
+                                                          'I wonder what it might look like in the table display. It '
+                                                          'would hopefully cause the scrollbar to appear, I would '
+                                                          'imagine, but I suppose we will have to see.')
 encrypted_password_2, nonce_2, tag_2 = encrypt_aes_256_gcm(key, 'OtherAccountPassword')
 
 # Create test users
@@ -63,10 +66,10 @@ cursor.execute("INSERT INTO users VALUES (:id, :email, :password)", {'id': None,
                                                                      'password': hashed_password})
 
 for i in range(1, 41):
-    cursor.execute("INSERT INTO accounts VALUES (:id, :name, :login, :password, :salt, :nonce, :tag, :user_id)",
+    cursor.execute("INSERT INTO accounts VALUES (:id, :name, :username, :password, :salt, :nonce, :tag, :user_id)",
                    {'id': None,
                     'name': f'Company {i}',
-                    'login': f'testemail{i}@gmail.com',
+                    'username': f'testemail{i}@gmail.com',
                     'password': encrypted_password,
                     'salt': salt,
                     'nonce': nonce,
@@ -74,20 +77,20 @@ for i in range(1, 41):
                     'user_id': 1})
 
 # Create test accounts
-# cursor.execute("INSERT INTO accounts VALUES (:id, :name, :login, :password, :salt, :nonce, :tag, :user_id)",
+# cursor.execute("INSERT INTO accounts VALUES (:id, :name, :username, :password, :salt, :nonce, :tag, :user_id)",
 #                {'id': None,
 #                 'name': 'Company 1',
-#                 'login': 'testemail@gmail.com',
+#                 'username': 'testemail@gmail.com',
 #                 'password': encrypted_password,
 #                 'salt': salt,
 #                 'nonce': nonce,
 #                 'tag': tag,
 #                 'user_id': 1})
 
-# cursor.execute("INSERT INTO accounts VALUES (:id, :name, :login, :password, :salt, :nonce, :tag, :user_id)",
+# cursor.execute("INSERT INTO accounts VALUES (:id, :name, :username, :password, :salt, :nonce, :tag, :user_id)",
 #                {'id': None,
 #                 'name': 'Company 2',
-#                 'login': 'otheremail@gmail.com',
+#                 'username': 'otheremail@gmail.com',
 #                 'password': encrypted_password_2,
 #                 'salt': salt,
 #                 'nonce': nonce_2,
@@ -96,10 +99,10 @@ for i in range(1, 41):
 
 # This should not work since it breaks unique(name, user_id)
 try:
-    cursor.execute("INSERT INTO accounts VALUES (:id, :name, :login, :password, :salt, :nonce, :tag, :user_id)",
+    cursor.execute("INSERT INTO accounts VALUES (:id, :name, :username, :password, :salt, :nonce, :tag, :user_id)",
                    {'id': None,
                     'name': 'Company 2',
-                    'login': 'otheremail@gmail.com',
+                    'username': 'otheremail@gmail.com',
                     'password': encrypted_password,
                     'salt': salt,
                     'nonce': nonce,
@@ -108,10 +111,10 @@ try:
 except sqlite3.IntegrityError as e:
     print(f'This insert failed as expected because of the following: {e} - UNIQUE(Company2, user_id 1)')
 
-cursor.execute("INSERT INTO accounts VALUES (:id, :name, :login, :password, :salt, :nonce, :tag, :user_id)",
+cursor.execute("INSERT INTO accounts VALUES (:id, :name, :username, :password, :salt, :nonce, :tag, :user_id)",
                {'id': None,
                 'name': 'Company 1',
-                'login': 'otheremail@gmail.com',
+                'username': 'awesome_user',
                 'password': encrypted_password_2,
                 'salt': salt,
                 'nonce': nonce_2,
@@ -119,10 +122,10 @@ cursor.execute("INSERT INTO accounts VALUES (:id, :name, :login, :password, :sal
                 'user_id': 2})
 
 
-cursor.execute("INSERT INTO accounts VALUES (:id, :name, :login, :password, :salt, :nonce, :tag, :user_id)",
+cursor.execute("INSERT INTO accounts VALUES (:id, :name, :username, :password, :salt, :nonce, :tag, :user_id)",
                {'id': None,
                 'name': 'Company 2',
-                'login': 'otheremail@gmail.com',
+                'username': 'otheremail@gmail.com',
                 'password': encrypted_password,
                 'salt': salt,
                 'nonce': nonce,
