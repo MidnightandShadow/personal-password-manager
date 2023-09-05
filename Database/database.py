@@ -1,4 +1,5 @@
 import os
+import random
 import sqlite3
 
 from argon2 import PasswordHasher
@@ -34,7 +35,7 @@ cursor.execute("""CREATE TABLE users (
 
 cursor.execute("""CREATE TABLE accounts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
+                name TEXT NOT NULL COLLATE NOCASE,
                 username TEXT NOT NULL,
                 password BLOB NOT NULL,
                 salt BLOB NOT NULL,
@@ -58,17 +59,18 @@ encrypted_password_2, nonce_2, tag_2 = encrypt_aes_256_gcm(key, 'OtherAccountPas
 
 # Create test users
 cursor.execute("INSERT INTO users VALUES (:id, :email, :password)", {'id': None,
-                                                                     'email': 'a',
+                                                                     'email': 'a@gmail.com',
                                                                      'password': hashed_password})
 
 cursor.execute("INSERT INTO users VALUES (:id, :email, :password)", {'id': None,
                                                                      'email': 'secondemail@gmail.com',
                                                                      'password': hashed_password})
 
-for i in range(1, 41):
+for i in range(1, 999):
+    random_int = random.randrange(0, 27)
     cursor.execute("INSERT INTO accounts VALUES (:id, :name, :username, :password, :salt, :nonce, :tag, :user_id)",
                    {'id': None,
-                    'name': f'Company {i}',
+                    'name': f'{random_int}Company {i}',
                     'username': f'testemail{i}@gmail.com',
                     'password': encrypted_password,
                     'salt': salt,

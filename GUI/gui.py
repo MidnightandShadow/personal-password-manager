@@ -2,13 +2,14 @@ from sqlite3 import connect
 import tkinter as tk
 from tkinter import ttk
 from tkinter.constants import CENTER
+from typing import Optional, List
 
 import darkdetect
 from pyperclip import copy
 import customtkinter
-from tkinter import messagebox
 
-from config import DB_NAME
+from config import DB_NAME, VALID_EMAIL_PATTERN
+from re import match as regex_match
 from Utils.database import get_all_account_names_and_usernames_by_user_id, get_decrypted_account_password, \
     get_account_id_by_account_name_and_user_id, get_user_id_by_email, is_valid_login, create_user, create_account, \
     get_account_name_and_username_by_account_id
@@ -124,18 +125,17 @@ class App(customtkinter.CTk):
         self.appearance_mode_optionemenu.grid(row=6, column=0, padx=20, pady=(10, 10))
 
         # create main entry and button
-        self.entry = customtkinter.CTkEntry(self, placeholder_text="CTkEntry")
+        self.entry = customtkinter.CTkEntry(self, placeholder_text="Type to search by account name")
         self.entry.grid(row=3, column=1, columnspan=2, padx=(20, 0), pady=(20, 20), sticky="nsew")
-
-        self.main_button_1 = customtkinter.CTkButton(master=self, fg_color="transparent", border_width=2, text_color=("gray10", "#DCE4EE"))
-        self.main_button_1.grid(row=3, column=3, padx=(20, 20), pady=(20, 20), sticky="nsew")
 
         # set default values
         self.appearance_mode_optionemenu.set("System")
         self.PASSWORD_HIDDEN_TEXT = 'Click to show password'
         self.tree = ttk.Treeview()
         self.tree.bind('<1>', self.item_selected)
+        self.entry.bind('<KeyRelease>', self._filter_accounts)
         self.selected_row_info_dict = None
+        self.current_treeview_filter = None
         self.current_user = None
         self.master_password = None
 
@@ -232,24 +232,65 @@ class App(customtkinter.CTk):
         else:
             set_treeview_to_light_style(self.tree)
 
+    def _filter_accounts(self, event: Optional[tk.Event] = None):
+        """
+        First removes existing filter, if one exists, before filtering.
+        Filtering:
+        When the user finishes typing/releases a key in the search bar by the Treeview, the search executes.
+        This search filters the Treeview to display Accounts where the Account name contains the string entered into the
+        search bar. Sets self.current_treeview_filter to the ids of the detached Treeview items.
+        """
+        if self.current_treeview_filter:
+            for account_and_index in self.current_treeview_filter:
+                self.tree.move(item=account_and_index[0], parent='', index=account_and_index[1])
+
+        query = self.entry.get()
+
+        accounts_to_detach_with_index = []
+
+        for account in self.tree.get_children():
+            account_name = self.tree.item(account)['values'][0]
+            if query not in str(account_name):
+                accounts_to_detach_with_index.append((account, self.tree.index(account)))
+
+        for account_and_index in accounts_to_detach_with_index:
+            self.tree.detach(account_and_index[0])
+
+        self.current_treeview_filter = accounts_to_detach_with_index
+
     def add_account_button_event(self):
-        account_username = ''
-        account_password = ''
+        width = 320
+        height = 150
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+        x = ((screen_width / 2) - (width / 2)).__trunc__()
+        y = ((screen_height / 2) - (height / 2)).__trunc__()
 
         account_name_dialog = customtkinter.CTkInputDialog(title='Account name', text='Enter the account name or url')
+        account_name_dialog.geometry(f'{width}x{height}+{x}+{y}')
         account_name = account_name_dialog.get_input()
 
-        if account_name:
-            account_username_dialog = customtkinter.CTkInputDialog(title='Account username', text='Enter the account\'s username')
-            account_username = account_username_dialog.get_input()
+        existing_account = get_account_id_by_account_name_and_user_id(account_name=account_name, user_id=self.current_user, connection=self.connection)
 
-        if account_username:
-            account_password_dialog = customtkinter.CTkInputDialog(title='Account password', text='Enter the account\'s password')
-            account_password = account_password_dialog.get_input()
+        if existing_account is not None:
+            ErrorMessageGUI('An account with this name already exists.', 'Please update that account entry or enter a new account name.')
+            return
 
-        account_id = create_account(user_id=self.current_user, master_password=self.master_password,
-                                    name=account_name, username=account_username,
-                                    password=account_password, connection=self.connection)
+        account_username_dialog = customtkinter.CTkInputDialog(title='Account username', text='Enter the account\'s username')
+        account_username_dialog.geometry(f'{width}x{height}+{x}+{y}')
+        account_username = account_username_dialog.get_input()
+
+        account_password_dialog = customtkinter.CTkInputDialog(title='Account password', text='Enter the account\'s password')
+        account_password_dialog.geometry(f'{width}x{height}+{x}+{y}')
+        account_password = account_password_dialog.get_input()
+
+        try:
+            account_id = create_account(user_id=self.current_user, master_password=self.master_password,
+                                        name=account_name, username=account_username,
+                                        password=account_password, connection=self.connection)
+        except ValueError:
+            ErrorMessageGUI(title='Blank field', message_line_1='Please do not leave the account name, username, or password blank.')
+            return
 
         account_name_and_username = get_account_name_and_username_by_account_id(account_id, self.connection)
         account_name_username_and_hidden_password = account_name_and_username + (self.PASSWORD_HIDDEN_TEXT, )
@@ -258,12 +299,16 @@ class App(customtkinter.CTk):
 
     def copy_username_button_event(self):
         if not self.selected_row_info_dict:
+            ErrorMessageGUI(title='No account selected', message_line_1='No account is currently selected.',
+                            message_line_2='Please select an account first and try again.')
             return
 
         copy(self.selected_row_info_dict['username'])
 
     def copy_password_button_event(self):
         if not self.selected_row_info_dict:
+            ErrorMessageGUI(title='No account selected', message_line_1='No account is currently selected.',
+                            message_line_2='Please select an account first and try again.')
             return
 
         password = self.selected_row_info_dict['password']
@@ -282,6 +327,8 @@ class LoginGUI(customtkinter.CTkToplevel):
         self.parent = parent
         self.connection = self.parent.connection
 
+        self.grab_set()
+        self.title('Login')
         self.parent.withdraw()
 
         self.email = None
@@ -317,15 +364,19 @@ class LoginGUI(customtkinter.CTkToplevel):
         button.pack(pady=(36, 36), padx=10)
 
         self.protocol("WM_DELETE_WINDOW", self.quit)
+        self.bind('<Return>', self._login)
 
-    def _login(self):
-        self.entered_email = self.user_entry.get()
+    def _login(self, event: Optional[tk.Event] = None):
+        self.entered_email = str.lower(self.user_entry.get())
         self.entered_password = self.user_pass.get()
 
         if not self.entered_email:
-            messagebox.showwarning(title='No email', message='Please enter your email')
+            ErrorMessageGUI(title='No Email', message_line_1='Please enter your email.')
+        elif not regex_match(pattern=VALID_EMAIL_PATTERN, string=self.entered_email):
+            ErrorMessageGUI(title='Invalid email', message_line_1='Please enter a valid email address.')
+            return
         elif not self.entered_password:
-            messagebox.showwarning(title='No password', message='Please enter your password')
+            ErrorMessageGUI(title='No password', message_line_1='Please enter your password.')
 
         if not self.entered_email or not self.entered_password:
             return
@@ -340,7 +391,7 @@ class LoginGUI(customtkinter.CTkToplevel):
             self.parent.deiconify()
             self.destroy()
         else:
-            messagebox.showwarning(title='Wrong password', message='Please check your password')
+            ErrorMessageGUI(title='Wrong password', message_line_1='Please check your password.')
 
 
 class SignupGUI(customtkinter.CTkToplevel):
@@ -349,6 +400,8 @@ class SignupGUI(customtkinter.CTkToplevel):
         self.parent = parent
 
         self.attributes('-topmost', True)
+        self.grab_set()
+        self.title('Signup')
         width = 500
         height = 250
 
@@ -360,7 +413,7 @@ class SignupGUI(customtkinter.CTkToplevel):
 
         self.geometry(f'{width}x{height}+{x}+{y}')
 
-        prompt_1 = 'This email does not exist.'
+        prompt_1 = 'There is no account with this email.'
         prompt_2 = 'Click Cancel to re-enter your email or click Sign up to create an account.'
 
         label = customtkinter.CTkLabel(master=self, text=prompt_1, font=('', 14))
@@ -387,6 +440,43 @@ class SignupGUI(customtkinter.CTkToplevel):
         self.parent.parent.setup_treeview(user_id, self.parent.entered_password)
         self.parent.parent.deiconify()
         self.parent.destroy()
+        self.destroy()
+
+
+class ErrorMessageGUI(customtkinter.CTkToplevel):
+    def __init__(self, title: str, message_line_1: str, message_line_2: Optional[str] = None):
+        super().__init__()
+        self.attributes('-topmost', True)
+        self.grid_propagate(False)
+        self.grab_set()
+        self.title(title)
+
+        label = customtkinter.CTkLabel(master=self, text=message_line_1, font=('', 14))
+        label.pack(pady=(12, 0), padx=20)
+
+        if message_line_2:
+            label_2 = customtkinter.CTkLabel(master=self, text=message_line_2, font=('', 14))
+            label_2.pack(pady=(12, 0), padx=20)
+
+        self.ok_button = customtkinter.CTkButton(master=self, text='Ok', command=self._ok)
+        self.ok_button.pack(pady=(24, 20), padx=20)
+
+        self.update()
+
+        width = self.winfo_width()
+        height = self.winfo_height()
+
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+
+        x = ((screen_width / 2) - (width / 2)).__trunc__()
+        y = ((screen_height / 2) - (height / 2)).__trunc__()
+
+        self.geometry(f'{x}+{y}')
+
+        self.bind('<Return>', self._ok)
+
+    def _ok(self, event: Optional[tk.Event] = None):
         self.destroy()
 
 

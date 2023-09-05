@@ -7,6 +7,8 @@ from argon2.exceptions import HashingError, VerifyMismatchError, VerificationErr
 from Utils.cryptography import derive_256_bit_salt_and_key, decrypt_aes_256_gcm, encrypt_aes_256_gcm
 from re import match as regex_match
 
+from config import VALID_EMAIL_PATTERN
+
 
 def create_user(email: str, password: str, connection: Connection) -> int:
     """
@@ -19,8 +21,7 @@ def create_user(email: str, password: str, connection: Connection) -> int:
     if not email:
         raise ValueError('The given email was an empty string')
 
-    valid_email_format = regex_match(pattern='^[_a-z0-9-]+(\\.[_a-z0-9-]+)*@[a-z0-9-]+(\\.[a-z0-9-]+)*(\\.[a-z]{2,4})$',
-                                     string=email)
+    valid_email_format = regex_match(pattern=VALID_EMAIL_PATTERN, string=email)
 
     if not valid_email_format:
         raise ValueError(f'The given email ({email}) is invalid')
@@ -390,7 +391,7 @@ def db_setup() -> Tuple[Connection, Cursor]:
 
     cursor.execute("""CREATE TABLE accounts (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL,
+                    name TEXT NOT NULL COLLATE NOCASE,
                     username TEXT NOT NULL,
                     password BLOB NOT NULL,
                     salt BLOB NOT NULL,

@@ -1,12 +1,12 @@
 Checklist:
 
-Login/signup -
+Login/signup - DONE
 
 Encryption - DONE
 
 Import accounts -
 
-Search accounts -
+Search accounts - DONE
 
 Encrypted export -
 
@@ -14,9 +14,7 @@ Unencrypted export -
 
 Generate password -
 
-GUI -
-
-Preferences -
+GUI V1 - DONE
 
 Optional goal: Chrome extension for autofill -
 
@@ -40,12 +38,10 @@ Upon logging in or successfully registering, the main accounts screen is display
 
 ------------------------------------------------------------------------------------------------------------------------
 Where I left off:
-Fixing GUI resizing during fullscreen mode, adding small popup (not a dialogue) for "copied to clipboard" when
-a username or password is clicked
+Importing and exporting passwords
 
-In add_account_button_event() in gui.py:
-Add validation/retry when not inputting anything and retry when inputting an existing account name (saying they must be
-unique)
-
+Generating a random secure password (and prompting the user to change their actual account info themselves):
+- Regenerate password for selected row
+- Generate password option when making a new Account
 
 ------------------------------------------------------------------------------------------------------------------------
