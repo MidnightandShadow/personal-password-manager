@@ -2,7 +2,7 @@ from sqlite3 import connect
 import tkinter as tk
 from tkinter import ttk
 from tkinter.constants import CENTER
-from typing import Optional, List
+from typing import Optional
 
 import darkdetect
 from pyperclip import copy
@@ -10,9 +10,9 @@ import customtkinter
 
 from config import DB_NAME, VALID_EMAIL_PATTERN
 from re import match as regex_match
-from Utils.database import get_all_account_names_and_usernames_by_user_id, get_decrypted_account_password, \
+from Utils.database import get_all_account_names_urls_and_usernames_by_user_id, get_decrypted_account_password, \
     get_account_id_by_account_name_and_user_id, get_user_id_by_email, is_valid_login, create_user, create_account, \
-    get_account_name_and_username_by_account_id
+    get_account_name_url_and_username_by_account_id, edit_account
 
 customtkinter.set_appearance_mode('System')  # Modes: "System" (standard), "Dark", "Light"
 customtkinter.set_default_color_theme('blue')  # Themes: "blue" (standard), "green", "dark-blue"
@@ -98,31 +98,41 @@ class App(customtkinter.CTk):
 
         self.geometry(f'{width}x{height}+{x}+{y}')
 
-        # configure grid layout (4x4)
+        # configure grid layout
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
         # create sidebar frame with widgets
         self.sidebar_frame = customtkinter.CTkFrame(self, width=140, corner_radius=0)
         self.sidebar_frame.grid(row=0, column=0, rowspan=4, sticky="nsew")
-        self.sidebar_frame.grid_rowconfigure(4, weight=1)
+
+        # Space in between the main sidebar buttons and the styling option button
+        self.sidebar_frame.grid_rowconfigure(6, weight=1)
+
         self.logo_label = customtkinter.CTkLabel(self.sidebar_frame, text="CustomTkinter", font=customtkinter.CTkFont(size=20, weight="bold"))
         self.logo_label.grid(row=0, column=0, padx=20, pady=(20, 10))
 
         self.add_account_button = customtkinter.CTkButton(self.sidebar_frame, text='Add account', command=self.add_account_button_event, width=180)
         self.add_account_button.grid(row=1, column=0, padx=20, pady=10)
 
+        self.copy_url_button = customtkinter.CTkButton(self.sidebar_frame, text='Copy selected url', command=self.copy_url_button_event, width=180)
+        self.copy_url_button.grid(row=2, column=0, padx=20, pady=10)
+
         self.copy_username_button = customtkinter.CTkButton(self.sidebar_frame, text='Copy selected username', command=self.copy_username_button_event, width=180)
-        self.copy_username_button.grid(row=2, column=0, padx=20, pady=10)
+        self.copy_username_button.grid(row=3, column=0, padx=20, pady=10)
 
         self.copy_password_button = customtkinter.CTkButton(self.sidebar_frame, text='Copy selected password', command=self.copy_password_button_event, width=180)
-        self.copy_password_button.grid(row=3, column=0, padx=20, pady=10)
+        self.copy_password_button.grid(row=4, column=0, padx=20, pady=10)
+
+        self.edit_account_button = customtkinter.CTkButton(self.sidebar_frame, text='Edit selected account', command=self.edit_account_button_event, width=180)
+        self.edit_account_button.grid(row=5, column=0, padx=20, pady=10)
 
         self.appearance_mode_label = customtkinter.CTkLabel(self.sidebar_frame, text="Appearance Mode:", anchor="w")
-        self.appearance_mode_label.grid(row=5, column=0, padx=20, pady=(10, 0))
+        self.appearance_mode_label.grid(row=7, column=0, padx=20, pady=(10, 0))
+
         self.appearance_mode_optionemenu = customtkinter.CTkOptionMenu(self.sidebar_frame, values=["Light", "Dark", "System"],
                                                                        command=self.change_appearance_mode_event)
-        self.appearance_mode_optionemenu.grid(row=6, column=0, padx=20, pady=(10, 10))
+        self.appearance_mode_optionemenu.grid(row=8, column=0, padx=20, pady=(10, 10))
 
         # create main entry and button
         self.entry = customtkinter.CTkEntry(self, placeholder_text="Type to search by account name")
@@ -130,6 +140,7 @@ class App(customtkinter.CTk):
 
         # set default values
         self.appearance_mode_optionemenu.set("System")
+        self.treeview_iid_to_full_url_dict = {'': ''}
         self.PASSWORD_HIDDEN_TEXT = 'Click to show password'
         self.tree = ttk.Treeview()
         self.tree.bind('<1>', self.item_selected)
@@ -144,12 +155,14 @@ class App(customtkinter.CTk):
         self.master_password = master_password
 
         # define columns
-        columns = ('account', 'username', 'password')
+        columns = ('account', 'url', 'username', 'password')
 
         self.tree.configure(columns=columns, show='headings')
 
         for col in columns:
             self.tree.column(col, anchor=CENTER, stretch=True)
+
+        # self.tree.column('url', )
 
         self.tree.grid(row=0, column=1, columnspan=4, sticky="nsew")
 
@@ -168,41 +181,52 @@ class App(customtkinter.CTk):
 
         # define headings
         self.tree.heading('account', text='Account')
+        self.tree.heading('url', text='Url')
         self.tree.heading('username', text='username')
         self.tree.heading('password', text='Password')
 
-
         # collect account data from database
-        accounts_name_and_username = get_all_account_names_and_usernames_by_user_id(user_id=user_id, connection=self.connection)
+        accounts = get_all_account_names_urls_and_usernames_by_user_id(user_id=user_id, connection=self.connection)
 
-        if not accounts_name_and_username:
+        if not accounts:
             return
-
-        # Pad account name and username with the default hidden text string (actual passwords will replace the default
-        # text only once clicked on)
-        accounts = [x + (self.PASSWORD_HIDDEN_TEXT,) for x in accounts_name_and_username]
 
         # Setup for getting the longest item width in each column so that the treeview column minwidth can be set
         # properly
         longest_title_item_width = 0
+        longest_url_item_width = 0
         longest_username_item_width = 0
-        longest_password_item_width = 0
+
+        password_item_width = tk.font.Font().measure(text=self.PASSWORD_HIDDEN_TEXT, displayof=self.tree)
 
         # add data to the treeview and get the longest item width for each column
         for account in accounts:
+            # Setup for shortening potential urls
+            if account[1] is None:
+                shortened_url = ''
+            else:
+                shortened_url = account[1][0:20] + '...' if len(account[1]) >= 23 else account[1]
+
             title_item_width = tk.font.Font().measure(text=account[0], displayof=self.tree)
-            username_item_width = tk.font.Font().measure(text=account[1], displayof=self.tree)
-            password_item_width = tk.font.Font().measure(text=account[2], displayof=self.tree)
+            url_item_width = tk.font.Font().measure(text=shortened_url, displayof=self.tree)
+            username_item_width = tk.font.Font().measure(text=account[2], displayof=self.tree)
 
             longest_title_item_width = title_item_width if title_item_width > longest_title_item_width else longest_title_item_width
+            longest_url_item_width = url_item_width if url_item_width > longest_url_item_width else longest_url_item_width
             longest_username_item_width = username_item_width if username_item_width > longest_username_item_width else longest_username_item_width
-            longest_password_item_width = password_item_width if password_item_width > longest_password_item_width else longest_password_item_width
 
-            self.tree.insert('', tk.END, values=account)
+            # Pad account name, url, and username with the default hidden text string (actual passwords will replace the
+            # default text only once clicked on). Also, use a shortened url for the Treeview and return the full url
+            # when copied.
+            iid = self.tree.insert('', tk.END, values=(account[0], shortened_url, account[2], self.PASSWORD_HIDDEN_TEXT,))
+
+            if account[1]:
+                self.treeview_iid_to_full_url_dict[iid] = account[1]
 
         self.tree.column('account', minwidth=longest_title_item_width)
+        self.tree.column('url', minwidth=longest_url_item_width)
         self.tree.column('username', minwidth=longest_username_item_width)
-        self.tree.column('password', minwidth=longest_password_item_width)
+        self.tree.column('password', minwidth=password_item_width)
 
     def item_selected(self, event):
         item_id = self.tree.identify("item", event.x, event.y)
@@ -213,6 +237,7 @@ class App(customtkinter.CTk):
             return
 
         self.selected_row_info_dict = self.tree.set(item_id)
+        self.selected_row_info_dict['iid'] = item_id
 
         if self.tree.column(column_id)['id'] == 'password':
             password_item = self.tree.set(item_id, column_id)
@@ -266,7 +291,7 @@ class App(customtkinter.CTk):
         x = ((screen_width / 2) - (width / 2)).__trunc__()
         y = ((screen_height / 2) - (height / 2)).__trunc__()
 
-        account_name_dialog = customtkinter.CTkInputDialog(title='Account name', text='Enter the account name or url')
+        account_name_dialog = customtkinter.CTkInputDialog(title='Account name', text='Enter the account name')
         account_name_dialog.geometry(f'{width}x{height}+{x}+{y}')
         account_name = account_name_dialog.get_input()
 
@@ -276,6 +301,10 @@ class App(customtkinter.CTk):
             ErrorMessageGUI('An account with this name already exists.', 'Please update that account entry or enter a new account name.')
             return
 
+        account_url_dialog = customtkinter.CTkInputDialog(title='Account url', text='Enter the account\'s url if applicable')
+        account_url_dialog.geometry(f'{width}x{height}+{x}+{y}')
+        account_url = account_url_dialog.get_input()
+
         account_username_dialog = customtkinter.CTkInputDialog(title='Account username', text='Enter the account\'s username')
         account_username_dialog.geometry(f'{width}x{height}+{x}+{y}')
         account_username = account_username_dialog.get_input()
@@ -284,18 +313,37 @@ class App(customtkinter.CTk):
         account_password_dialog.geometry(f'{width}x{height}+{x}+{y}')
         account_password = account_password_dialog.get_input()
 
+        url = account_url if account_url else None
+
         try:
             account_id = create_account(user_id=self.current_user, master_password=self.master_password,
-                                        name=account_name, username=account_username,
+                                        name=account_name, url=url, username=account_username,
                                         password=account_password, connection=self.connection)
         except ValueError:
             ErrorMessageGUI(title='Blank field', message_line_1='Please do not leave the account name, username, or password blank.')
             return
 
-        account_name_and_username = get_account_name_and_username_by_account_id(account_id, self.connection)
-        account_name_username_and_hidden_password = account_name_and_username + (self.PASSWORD_HIDDEN_TEXT, )
+        account = (get_account_name_url_and_username_by_account_id(account_id, self.connection) +
+                   (self.PASSWORD_HIDDEN_TEXT, ))
 
-        self.tree.insert(parent='', index='end', values=account_name_username_and_hidden_password)
+        if url is None:
+            shortened_url = ''
+        else:
+            shortened_url = url[0:20] + '...' if len(url) >= 23 else url
+
+        iid = self.tree.insert(parent='', index='end', values=(account[0], shortened_url, account[2], account[3],))
+
+        if account[1]:
+            self.treeview_iid_to_full_url_dict[iid] = account[1]
+
+    def copy_url_button_event(self):
+        if not self.selected_row_info_dict:
+            ErrorMessageGUI(title='No account selected', message_line_1='No account is currently selected.',
+                            message_line_2='Please select an account first and try again.')
+            return
+
+        iid = self.selected_row_info_dict['iid']
+        copy(self.treeview_iid_to_full_url_dict[iid])
 
     def copy_username_button_event(self):
         if not self.selected_row_info_dict:
@@ -319,6 +367,70 @@ class App(customtkinter.CTk):
             password = get_decrypted_account_password(account_id, self.master_password, self.connection)
 
         copy(password)
+
+    def edit_account_button_event(self):
+        if not self.selected_row_info_dict:
+            ErrorMessageGUI(title='No account selected', message_line_1='No account is currently selected.',
+                            message_line_2='Please select an account first and try again.')
+            return
+
+        account_id = get_account_id_by_account_name_and_user_id(account_name=self.selected_row_info_dict['account'],
+                                                                user_id=self.current_user, connection=self.connection)
+
+        width = 400
+        height = 180
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+        x = ((screen_width / 2) - (width / 2)).__trunc__()
+        y = ((screen_height / 2) - (height / 2)).__trunc__()
+
+        account_name_dialog = customtkinter.CTkInputDialog(title='Account name', text='Enter the account name (leave blank or cancel for no change)')
+        account_name_dialog.geometry(f'{width}x{height}+{x}+{y}')
+        account_name = account_name_dialog.get_input()
+
+        existing_account = get_account_id_by_account_name_and_user_id(account_name=account_name, user_id=self.current_user, connection=self.connection)
+
+        if existing_account is not None:
+            ErrorMessageGUI('An account with this name already exists.', 'Please update that account entry or enter a new account name.')
+            return
+
+        account_url_dialog = customtkinter.CTkInputDialog(title='Account url', text='Enter the account\'s url  (leave blank or cancel for no change)')
+        account_url_dialog.geometry(f'{width}x{height}+{x}+{y}')
+        account_url = account_url_dialog.get_input()
+
+        account_username_dialog = customtkinter.CTkInputDialog(title='Account username', text='Enter the account\'s username  (leave blank or cancel for no change)')
+        account_username_dialog.geometry(f'{width}x{height}+{x}+{y}')
+        account_username = account_username_dialog.get_input()
+
+        account_password_dialog = customtkinter.CTkInputDialog(title='Account password', text='Enter the account\'s password  (leave blank or cancel for no change)')
+        account_password_dialog.geometry(f'{width}x{height}+{x}+{y}')
+        account_password = account_password_dialog.get_input()
+
+        url = account_url if account_url else None
+
+        edit_account(account_id=account_id, master_password=self.master_password, name=account_name, url=url,
+                     username=account_username, password=account_password, connection=self.connection)
+
+        account = (get_account_name_url_and_username_by_account_id(account_id, self.connection) +
+                   (self.PASSWORD_HIDDEN_TEXT, ))
+
+        old_url = self.selected_row_info_dict['url']
+
+        iid = self.selected_row_info_dict['iid']
+
+        if url is None:
+            shortened_url = old_url
+        else:
+            shortened_url = url[0:20] + '...' if len(url) >= 23 else url
+            self.treeview_iid_to_full_url_dict[iid] = account[1]
+
+        self.tree.set(item=iid, column='account', value=account[0])
+        self.tree.set(item=iid, column='url', value=shortened_url)
+        self.tree.set(item=iid, column='username', value=account[2])
+        self.tree.set(item=iid, column='password', value=account[3])
+
+        self.selected_row_info_dict = self.tree.set(iid)
+        self.selected_row_info_dict['iid'] = iid
 
 
 class LoginGUI(customtkinter.CTkToplevel):

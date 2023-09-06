@@ -18,23 +18,6 @@ GUI V1 - DONE
 
 Optional goal: Chrome extension for autofill -
 
-Flow:
-Start screen has an empty text input labelled "email" and a button labelled "Log in/Sign up"
-- If email is already registered, the screen then replaces the "email" input with a "password" input.
-- If email is not associated with a User, screen changes to option for creating an account with
-the previously filled in email field and a new password field, plus instructions about making a good "master password".
-
-Upon logging in or successfully registering, the main accounts screen is display.
-- Lists rows of account names, their associated emails, obscured passwords (••••••••••), and a toggle to show/hide the
- password.
-- Has a header menubar with options to add an account, remove selected accounts, import accounts, export accounts
- (encrypted and plaintext), a searchbar/filter for accounts (can enter account names or emails), and regenerate
- password (for the selected account - pops open dialogue, so you can copy it to your clipboard and not forget to change
- the actual account password). Also has an option to sign out.
-
- Closing the main GUI window/session automatically logs you out.
--
-
 
 ------------------------------------------------------------------------------------------------------------------------
 Where I left off:

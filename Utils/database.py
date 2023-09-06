@@ -1,3 +1,4 @@
+import sqlite3
 from sqlite3 import Connection, Cursor, connect
 from typing import Tuple, List, Dict, Optional
 
@@ -46,12 +47,12 @@ def create_user(email: str, password: str, connection: Connection) -> int:
     return user_id
 
 
-def create_account(user_id: int, master_password: str, name: str, username: str, password: str, connection: Connection)\
-        -> int:
+def create_account(user_id: int, master_password: str, name: str, url: Optional[str], username: str, password: str,
+                   connection: Connection) -> int:
     """
     Creates a new Account in the database for the User with the given user_id and master_password using the given
-    Account name, username, and password. The password is encrypted before storage and the accompanying cryptographic
-    info is stored as well. Returns the corresponding Account id.
+    Account name, url (if provided), username, and password. The password is encrypted before storage and the
+    accompanying cryptographic info is stored as well. Returns the corresponding Account id.
     :return: the id of the created Account
     :raise ValueError: if the given user_id is invalid or if the name, username, master_password, or password are empty
     strings (or if raised by a called cryptographic function)
@@ -92,10 +93,11 @@ def create_account(user_id: int, master_password: str, name: str, username: str,
     salt, key = derive_256_bit_salt_and_key(master_password)
     encrypted_password, nonce, tag = encrypt_aes_256_gcm(key, password)
 
-    cursor.execute("""INSERT INTO accounts VALUES (:id, :name, :username, :password, :salt, :nonce, :tag, :user_id)
-    RETURNING id""",
+    cursor.execute("""INSERT INTO accounts VALUES (:id, :name, :url, :username, :password, :salt, :nonce, :tag,
+    :user_id) RETURNING id""",
                    {'id': None,
                     'name': name,
+                    'url': url,
                     'username': username,
                     'password': encrypted_password,
                     'salt': salt,
@@ -109,6 +111,73 @@ def create_account(user_id: int, master_password: str, name: str, username: str,
     cursor.close()
 
     return account_id
+
+
+def edit_account(account_id: int, connection: Connection, master_password: Optional[str] = None,
+                 name: Optional[str] = None, url: Optional[str] = None, username: Optional[str] = None,
+                 password: Optional[str] = None) -> None:
+    """
+    Edits the Account in the database with the given id using the given Account name, url, username, and password.
+    Each field is optional to allow only changing one aspect of the Account. However, if the password is passed, the
+    master_password must also be passed for re-encryption purposes. The changes are only committed if there is not
+    an error.
+    :raise ValueError: if the given user_id is invalid or if the password is passed without the master_password
+    (or if raised by a called cryptographic function)
+    :raise Sqlite3.IntegrityError: if the passed name is already in use for another Account
+    :raise argon2.exceptions.HashingError: if hashing fails
+    :raise argon2.exceptions.VerifyMismatchError: if the User's hashed_password is not valid for the given
+    master password
+    :raise argon2.exceptions.InvalidHashError: if hash is invalid
+    :raise argon2.exceptions.VerificationError: if there was a miscellaneous verification error (if the argon
+    verification raised VerificationError as opposed to VerifyMismatchError or InvalidHashError)
+    """
+    cursor = connection.cursor()
+
+    cursor.execute("SELECT EXISTS (SELECT 1 FROM accounts WHERE id=?)", (account_id,))
+
+    account_exits = cursor.fetchone()[0]
+
+    if not account_exits:
+        raise ValueError(f'There is no Account with the given id ({account_id})')
+
+    if password and not master_password:
+        raise ValueError('The given master_password was an empty string or was not provided')
+
+    if name:
+        try:
+            cursor.execute("UPDATE accounts SET name=:name WHERE id=:account_id", {'name': name,
+                                                                                   'account_id': account_id})
+        except sqlite3.IntegrityError as e:
+            raise sqlite3.IntegrityError(f'The name could not be updated because this Account name is already '
+                                         f'being used: {e}')
+
+    if url:
+        cursor.execute("UPDATE accounts SET url=:url WHERE id=:account_id", {'url': url,
+                                                                             'account_id': account_id})
+
+    if username:
+        cursor.execute("UPDATE accounts SET username=:username WHERE id=:account_id",
+                       {'username': username, 'account_id': account_id})
+
+    if password and master_password:
+        ph = PasswordHasher()
+
+        cursor.execute("SELECT user_id from accounts WHERE id=?", (account_id,))
+        user_id = cursor.fetchone()[0]
+
+        hashed_password = get_login_password_by_user_id(user_id, connection)
+
+        ph.verify(hash=hashed_password, password=master_password)
+
+        salt, key = derive_256_bit_salt_and_key(master_password)
+        encrypted_password, nonce, tag = encrypt_aes_256_gcm(key, password)
+
+        cursor.execute("""UPDATE accounts SET password=:password, salt=:salt, nonce=:nonce, tag=:tag WHERE
+        id=:account_id""", {'password': encrypted_password, 'salt': salt, 'nonce': nonce, 'tag': tag,
+                            'account_id': account_id})
+
+    connection.commit()
+    cursor.close()
 
 
 def get_user_id_by_email(email: str, connection: Connection) -> Optional[int]:
@@ -144,6 +213,8 @@ def get_login_password_by_user_id(user_id: int, connection: Connection) -> Optio
 
     password = result[0] if result else None
 
+    cursor.close()
+
     return password
 
 
@@ -168,42 +239,46 @@ def get_account_id_by_account_name_and_user_id(account_name: str, user_id: int, 
     return account_id
 
 
-def get_account_name_and_username_by_account_id(account_id: int, connection: Connection)\
-        -> Optional[Tuple[str, str]]:
+def get_account_name_url_and_username_by_account_id(account_id: int, connection: Connection)\
+        -> Optional[Tuple[str, Optional[str], str]]:
     """
-    Returns the name and username of the Account with the given id if the Account exists, else None.
+    Returns the name, url, and username of the Account with the given id if the Account exists, else None.
     :param account_id: the id of the Account to be queried
     :param connection: the database connection to use
     :return: the name and username of the Account with the given id if the Account exists, else None
     """
     cursor = connection.cursor()
 
-    cursor.execute("SELECT name, username FROM accounts WHERE id=?", (account_id, ))
+    cursor.execute("SELECT name, url, username FROM accounts WHERE id=?", (account_id, ))
 
     result = cursor.fetchone()
 
-    user_account_name_and_username = result if result else None
+    user_account_name_url_and_username = result if result else None
 
-    return user_account_name_and_username
+    cursor.close()
+
+    return user_account_name_url_and_username
 
 
-def get_all_account_names_and_usernames_by_user_id(user_id: int, connection: Connection)\
-        -> Optional[List[Tuple[str, str]]]:
+def get_all_account_names_urls_and_usernames_by_user_id(user_id: int, connection: Connection)\
+        -> Optional[List[Tuple[str, Optional[str], str]]]:
     """
-    Returns the name and username of all Accounts for the User with the given id if they have Accounts, else None.
+    Returns the name, url, and username of all Accounts for the User with the given id if they have Accounts, else None.
     :param user_id: the id of the associated user
     :param connection: the database connection to use
     :return: all name and username of all Accounts for the User with the given id if they have Accounts, else None
     """
     cursor = connection.cursor()
 
-    cursor.execute("SELECT name, username FROM accounts WHERE user_id=?", (user_id,))
+    cursor.execute("SELECT name, url, username FROM accounts WHERE user_id=?", (user_id,))
 
     result = cursor.fetchall()
 
-    user_account_names_and_usernames = result if result else None
+    user_account_names_urls_and_usernames = result if result else None
 
-    return user_account_names_and_usernames
+    cursor.close()
+
+    return user_account_names_urls_and_usernames
 
 
 def get_decrypted_account_password(account_id: int, master_password: str, connection: Connection) -> str:
@@ -235,6 +310,8 @@ def get_decrypted_account_password(account_id: int, master_password: str, connec
         plaintext = decrypt_aes_256_gcm(key=key, ciphertext=password, nonce=nonce, tag=tag)
     except ValueError as e:
         raise ValueError(f'An error occurred while decrypting the password: {e}')
+
+    cursor.close()
 
     return plaintext
 
@@ -284,6 +361,8 @@ def get_all_decrypted_account_passwords_by_user_id(user_id: int, master_password
             raise ValueError(f'An error occurred while decrypting the password: {e}')
 
         decrypted_account_passwords[account_id] = plaintext
+
+    cursor.close()
 
     return decrypted_account_passwords
 
@@ -370,6 +449,7 @@ def rehash_and_reencrypt_passwords(user_id: int, entered_password: str, connecti
     cursor.executemany(update_query, ciphertext_account_passwords)
 
     connection.commit()
+    cursor.close()
 
 
 # Utils for testing:
@@ -392,6 +472,7 @@ def db_setup() -> Tuple[Connection, Cursor]:
     cursor.execute("""CREATE TABLE accounts (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL COLLATE NOCASE,
+                    url TEXT COLLATE NOCASE,
                     username TEXT NOT NULL,
                     password BLOB NOT NULL,
                     salt BLOB NOT NULL,

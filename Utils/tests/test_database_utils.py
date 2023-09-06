@@ -1,3 +1,4 @@
+import sqlite3
 import unittest
 from typing import Tuple
 
@@ -6,10 +7,10 @@ from argon2 import PasswordHasher
 
 from Utils.cryptography import derive_256_bit_salt_and_key, encrypt_aes_256_gcm
 from Utils.database import get_login_password_by_user_id, get_account_id_by_account_name_and_user_id, db_setup, \
-    get_decrypted_account_password, get_all_account_names_and_usernames_by_user_id, get_user_id_by_email, \
+    get_decrypted_account_password, get_all_account_names_urls_and_usernames_by_user_id, get_user_id_by_email, \
     is_valid_login, \
     get_all_decrypted_account_passwords_by_user_id, rehash_and_reencrypt_passwords, create_user, create_account, \
-    get_account_name_and_username_by_account_id
+    get_account_name_url_and_username_by_account_id, edit_account
 
 
 class DatabaseUtilsTests(unittest.TestCase):
@@ -94,20 +95,22 @@ class DatabaseUtilsTests(unittest.TestCase):
         """
         master_password = 'MasterPassword'
         name = 'Google'
+        url = 'https://www.example.com'
         username = 'username@gmail.com'
         password = 'TheAccountPassword'
 
         user_id = create_user(email='new-email@gmail.com', password=master_password, connection=self.connection)
 
-        account_id = create_account(user_id=user_id, master_password=master_password, name=name, username=username,
-                                    password=password, connection=self.connection)
+        account_id = create_account(user_id=user_id, master_password=master_password, name=name, url=url,
+                                    username=username, password=password, connection=self.connection)
 
         self.cursor.execute("SELECT * FROM accounts WHERE id=?", (account_id, ))
 
-        queried_name, queried_username, queried_encrypted_password, queried_salt, queried_nonce, queried_tag,\
-            queried_user_id = self.cursor.fetchone()[1:]
+        (queried_name, queried_url, queried_username, queried_encrypted_password, queried_salt, queried_nonce,
+         queried_tag, queried_user_id) = self.cursor.fetchone()[1:]
 
         self.assertEquals(name, queried_name)
+        self.assertEquals(url, queried_url)
         self.assertEquals(username, queried_username)
         self.assertEquals(password, get_decrypted_account_password(account_id, master_password, self.connection))
         self.assertEquals(user_id, queried_user_id)
@@ -122,7 +125,7 @@ class DatabaseUtilsTests(unittest.TestCase):
         password = 'TheAccountPassword'
 
         try:
-            create_account(user_id=4500, master_password=master_password, name=name, username=username,
+            create_account(user_id=4500, master_password=master_password, name=name, url=None, username=username,
                            password=password, connection=self.connection)
         except ValueError as e:
             self.assertEquals('There is no User with the given user_id (4500)', str(e))
@@ -141,7 +144,7 @@ class DatabaseUtilsTests(unittest.TestCase):
         user_id = create_user(email='new-email@gmail.com', password=master_password, connection=self.connection)
 
         try:
-            create_account(user_id=user_id, master_password=master_password, name=name, username=username,
+            create_account(user_id=user_id, master_password=master_password, name=name, url=None, username=username,
                            password=password, connection=self.connection)
         except ValueError as e:
             self.assertEquals('The given name was an empty string', str(e))
@@ -160,7 +163,7 @@ class DatabaseUtilsTests(unittest.TestCase):
         user_id = create_user(email='new-email@gmail.com', password=master_password, connection=self.connection)
 
         try:
-            create_account(user_id=user_id, master_password=master_password, name=name, username=username,
+            create_account(user_id=user_id, master_password=master_password, name=name, url=None, username=username,
                            password=password, connection=self.connection)
         except ValueError as e:
             self.assertEquals('The given username was an empty string', str(e))
@@ -179,7 +182,7 @@ class DatabaseUtilsTests(unittest.TestCase):
         user_id = create_user(email='new-email@gmail.com', password=master_password, connection=self.connection)
 
         try:
-            create_account(user_id=user_id, master_password=master_password, name=name, username=username,
+            create_account(user_id=user_id, master_password=master_password, name=name, url=None, username=username,
                            password=password, connection=self.connection)
         except ValueError as e:
             self.assertEquals('The given password was an empty string', str(e))
@@ -198,12 +201,243 @@ class DatabaseUtilsTests(unittest.TestCase):
         user_id = create_user(email='new-email@gmail.com', password='Master Password', connection=self.connection)
 
         try:
-            create_account(user_id=user_id, master_password=master_password, name=name, username=username,
+            create_account(user_id=user_id, master_password=master_password, name=name, url=None, username=username,
                            password=password, connection=self.connection)
         except ValueError as e:
             self.assertEquals('The given master_password was an empty string', str(e))
         else:
             self.fail('Should have failed due to receiving an empty string for the given master_password')
+
+    def edit_account_setup(self) -> Tuple[str, int, int, str, str, str, str]:
+        """
+        Creates an Account to use in the edit account testing. Returns the master_password, the Account's id, the
+        corresponding user_id, the name, the url, the username, and the password used to make the Account.
+        Creates an additional account for the user with the name 'NAME' for unique name testing purposes.
+        """
+        master_password = 'MasterPassword'
+        name = 'Google'
+        url = 'https://www.example.com'
+        username = 'username@gmail.com'
+        password = 'TheAccountPassword'
+
+        user_id = create_user(email='new-email@gmail.com', password=master_password, connection=self.connection)
+
+        account_id = create_account(user_id=user_id, master_password=master_password, name=name, url=url,
+                                    username=username, password=password, connection=self.connection)
+
+        create_account(user_id=user_id, master_password=master_password, name='NAME', url=url,
+                       username=username, password=password, connection=self.connection)
+
+        return master_password, account_id, user_id, name, url, username, password
+
+    def test_edit_account_successful(self):
+        """
+        When all fields are passed, all Account info changes.
+        """
+        name = 'New Name'
+        url = 'https://www.example.net'
+        username = 'new-username@gmail.com'
+        password = 'NewAccountPassword'
+        master_password, account_id, user_id = self.edit_account_setup()[0:3]
+
+        edit_account(account_id=account_id, master_password=master_password, name=name, url=url, username=username,
+                     password=password, connection=self.connection)
+
+        self.cursor.execute("SELECT * FROM accounts WHERE id=?", (account_id, ))
+
+        (new_queried_name, new_queried_url, new_queried_username, new_queried_encrypted_password, new_queried_salt,
+         new_queried_nonce, new_queried_tag, new_queried_user_id) = self.cursor.fetchone()[1:]
+
+        self.assertEquals(name, new_queried_name)
+        self.assertEquals(url, new_queried_url)
+        self.assertEquals(username, new_queried_username)
+        self.assertEquals(password, get_decrypted_account_password(account_id, master_password, self.connection))
+        self.assertEquals(user_id, new_queried_user_id)
+
+    def test_edit_account_name_successful(self):
+        """
+        When name field is passed, name changes.
+        """
+        name = 'New Name'
+        master_password, account_id, user_id, old_name, old_url, old_username, old_password = self.edit_account_setup()
+
+        edit_account(account_id=account_id, name=name, connection=self.connection)
+
+        self.cursor.execute("SELECT * FROM accounts WHERE id=?", (account_id, ))
+
+        (new_queried_name, new_queried_url, new_queried_username, new_queried_encrypted_password, new_queried_salt,
+         new_queried_nonce, new_queried_tag, new_queried_user_id) = self.cursor.fetchone()[1:]
+
+        self.assertEquals(name, new_queried_name)
+        self.assertEquals(old_url, new_queried_url)
+        self.assertEquals(old_username, new_queried_username)
+        self.assertEquals(old_password, get_decrypted_account_password(account_id, master_password, self.connection))
+        self.assertEquals(user_id, new_queried_user_id)
+
+    def test_edit_account_url_successful(self):
+        """
+        When url field is passed, url changes.
+        """
+        url = 'https://www.example.com'
+        master_password, account_id, user_id, old_name, old_url, old_username, old_password = self.edit_account_setup()
+
+        edit_account(account_id=account_id, url=url, connection=self.connection)
+
+        self.cursor.execute("SELECT * FROM accounts WHERE id=?", (account_id, ))
+
+        (new_queried_name, new_queried_url, new_queried_username, new_queried_encrypted_password, new_queried_salt,
+         new_queried_nonce, new_queried_tag, new_queried_user_id) = self.cursor.fetchone()[1:]
+
+        self.assertEquals(old_name, new_queried_name)
+        self.assertEquals(url, new_queried_url)
+        self.assertEquals(old_username, new_queried_username)
+        self.assertEquals(old_password, get_decrypted_account_password(account_id, master_password, self.connection))
+        self.assertEquals(user_id, new_queried_user_id)
+
+    def test_edit_account_username_successful(self):
+        """
+        When username field is passed, username changes.
+        """
+        username = 'New Username'
+        master_password, account_id, user_id, old_name, old_url, old_username, old_password = self.edit_account_setup()
+
+        edit_account(account_id=account_id, username=username, connection=self.connection)
+
+        self.cursor.execute("SELECT * FROM accounts WHERE id=?", (account_id, ))
+
+        (new_queried_name, new_queried_url, new_queried_username, new_queried_encrypted_password, new_queried_salt,
+         new_queried_nonce, new_queried_tag, new_queried_user_id) = self.cursor.fetchone()[1:]
+
+        self.assertEquals(old_name, new_queried_name)
+        self.assertEquals(old_url, new_queried_url)
+        self.assertEquals(username, new_queried_username)
+        self.assertEquals(old_password, get_decrypted_account_password(account_id, master_password, self.connection))
+        self.assertEquals(user_id, new_queried_user_id)
+
+    def test_edit_account_password_successful(self):
+        """
+        When password and master_password field is passed, password changes.
+        """
+        password = 'NewAccountPassword'
+        master_password, account_id, user_id, old_name, old_url, old_username, old_password = self.edit_account_setup()
+
+        edit_account(account_id=account_id, password=password, master_password=master_password,
+                     connection=self.connection)
+
+        self.cursor.execute("SELECT * FROM accounts WHERE id=?", (account_id, ))
+
+        (new_queried_name, new_queried_url, new_queried_username, new_queried_encrypted_password, new_queried_salt,
+         new_queried_nonce, new_queried_tag, new_queried_user_id) = self.cursor.fetchone()[1:]
+
+        self.assertEquals(old_name, new_queried_name)
+        self.assertEquals(old_url, new_queried_url)
+        self.assertEquals(old_username, new_queried_username)
+        self.assertEquals(password, get_decrypted_account_password(account_id, master_password, self.connection))
+        self.assertEquals(user_id, new_queried_user_id)
+
+    def test_edit_account_password_no_master_password(self):
+        """
+        When password field is passed, but not the master_password field, raises a ValueError.
+        """
+        password = 'NewAccountPassword'
+        master_password, account_id, user_id, old_name, old_url, old_username, old_password = self.edit_account_setup()
+
+        try:
+            edit_account(account_id=account_id, password=password, connection=self.connection)
+        except ValueError as e:
+            self.assertEquals('The given master_password was an empty string or was not provided', str(e))
+        else:
+            self.fail('ValueError was not raised for missing master_password')
+
+        self.cursor.execute("SELECT * FROM accounts WHERE id=?", (account_id, ))
+
+        (new_queried_name, new_queried_url, new_queried_username, new_queried_encrypted_password, new_queried_salt,
+         new_queried_nonce, new_queried_tag, new_queried_user_id) = self.cursor.fetchone()[1:]
+
+        self.assertEquals(old_name, new_queried_name)
+        self.assertEquals(old_url, new_queried_url)
+        self.assertEquals(old_username, new_queried_username)
+        self.assertEquals(old_password, get_decrypted_account_password(account_id, master_password, self.connection))
+        self.assertEquals(user_id, new_queried_user_id)
+
+    def test_edit_account_password_empty_master_password(self):
+        """
+        When password field is passed, but the master_password field is an empty string, raises a ValueError.
+        """
+        password = 'NewAccountPassword'
+        master_password, account_id, user_id, old_name, old_url, old_username, old_password = self.edit_account_setup()
+
+        try:
+            edit_account(account_id=account_id, password=password, master_password='', connection=self.connection)
+        except ValueError as e:
+            self.assertEquals('The given master_password was an empty string or was not provided', str(e))
+        else:
+            self.fail('ValueError was not raised for empty string master_password')
+
+        self.cursor.execute("SELECT * FROM accounts WHERE id=?", (account_id, ))
+
+        (new_queried_name, new_queried_url, new_queried_username, new_queried_encrypted_password, new_queried_salt,
+         new_queried_nonce, new_queried_tag, new_queried_user_id) = self.cursor.fetchone()[1:]
+
+        self.assertEquals(old_name, new_queried_name)
+        self.assertEquals(old_url, new_queried_url)
+        self.assertEquals(old_username, new_queried_username)
+        self.assertEquals(old_password, get_decrypted_account_password(account_id, master_password, self.connection))
+        self.assertEquals(user_id, new_queried_user_id)
+
+    def test_edit_account_password_incorrect_master_password(self):
+        """
+        When password field is passed, but the master_password field is incorrect, raises an
+        argon2.exceptions.VerifyMismatchError.
+        """
+        password = 'NewAccountPassword'
+        master_password, account_id, user_id, old_name, old_url, old_username, old_password = self.edit_account_setup()
+
+        try:
+            edit_account(account_id=account_id, password=password, master_password='Wrong', connection=self.connection)
+        except argon2.exceptions.VerifyMismatchError as e:
+            self.assertEquals('The password does not match the supplied hash', str(e))
+        else:
+            self.fail('argon2.exceptions.VerifyMismatchError was not raised for incorrect master_password')
+
+        self.cursor.execute("SELECT * FROM accounts WHERE id=?", (account_id, ))
+
+        (new_queried_name, new_queried_url, new_queried_username, new_queried_encrypted_password, new_queried_salt,
+         new_queried_nonce, new_queried_tag, new_queried_user_id) = self.cursor.fetchone()[1:]
+
+        self.assertEquals(old_name, new_queried_name)
+        self.assertEquals(old_url, new_queried_url)
+        self.assertEquals(old_username, new_queried_username)
+        self.assertEquals(old_password, get_decrypted_account_password(account_id, master_password, self.connection))
+        self.assertEquals(user_id, new_queried_user_id)
+
+    def test_edit_account_name_not_unique(self):
+        """
+        When name field is passed, but the name field is not unique, raises a Sqlite3.IntegrityError.
+        """
+        name = 'NAME'
+        master_password, account_id, user_id, old_name, old_url, old_username, old_password = self.edit_account_setup()
+
+        try:
+            edit_account(account_id=account_id, name=name, connection=self.connection)
+        except sqlite3.IntegrityError as e:
+            self.assertEquals('The name could not be updated because this Account name is already '
+                              'being used: UNIQUE constraint failed: accounts.name, accounts.user_id', str(e))
+        else:
+            self.fail('Sqlite3.IntegrityError was not raised for non-unique account name')
+
+        self.cursor.execute("SELECT * FROM accounts WHERE id=?", (account_id, ))
+
+        (new_queried_name, new_queried_url, new_queried_username, new_queried_encrypted_password, new_queried_salt,
+         new_queried_nonce, new_queried_tag, new_queried_user_id) = self.cursor.fetchone()[1:]
+
+        self.assertEquals(old_name, new_queried_name)
+        self.assertEquals(old_url, new_queried_url)
+        self.assertEquals(old_username, new_queried_username)
+        self.assertEquals(old_password, get_decrypted_account_password(account_id, master_password, self.connection))
+        self.assertEquals(user_id, new_queried_user_id)
+
+
 
     def test_get_user_id_by_email_successful(self):
         """
@@ -245,9 +479,10 @@ class DatabaseUtilsTests(unittest.TestCase):
         """
         When an Account with the given name and foreign key user_id exists, the corresponding account id is returned.
         """
-        self.cursor.execute("INSERT INTO accounts VALUES (:id, :name, :username, :password, :salt, :nonce, :tag, :user_id)",
+        self.cursor.execute("INSERT INTO accounts VALUES (:id, :name, :url, :username, :password, :salt, :nonce, :tag, :user_id)",
                        {'id': None,
                         'name': 'Company 1',
+                        'url': 'https://www.example.com',
                         'username': 'testemail@gmail.com',
                         'password': b'password',
                         'salt': b'salt',
@@ -255,9 +490,10 @@ class DatabaseUtilsTests(unittest.TestCase):
                         'tag': b'tag',
                         'user_id': 1})
 
-        self.cursor.execute("INSERT INTO accounts VALUES (:id, :name, :username, :password, :salt, :nonce, :tag, :user_id)",
+        self.cursor.execute("INSERT INTO accounts VALUES (:id, :name, :url, :username, :password, :salt, :nonce, :tag, :user_id)",
                        {'id': None,
                         'name': 'Company 2',
+                        'url': None,
                         'username': 'testemail@gmail.com',
                         'password': b'password',
                         'salt': b'salt',
@@ -265,9 +501,10 @@ class DatabaseUtilsTests(unittest.TestCase):
                         'tag': b'tag',
                         'user_id': 1})
 
-        self.cursor.execute("INSERT INTO accounts VALUES (:id, :name, :username, :password, :salt, :nonce, :tag, :user_id)",
+        self.cursor.execute("INSERT INTO accounts VALUES (:id, :name, :url, :username, :password, :salt, :nonce, :tag, :user_id)",
                        {'id': None,
                         'name': 'Company 1',
+                        'url': None,
                         'username': 'otheremail@gmail.com',
                         'password': b'password',
                         'salt': b'salt',
@@ -287,9 +524,10 @@ class DatabaseUtilsTests(unittest.TestCase):
         """
         When an Account with the given name and foreign key user_id does not exist, None is returned.
         """
-        self.cursor.execute("INSERT INTO accounts VALUES (:id, :name, :username, :password, :salt, :nonce, :tag, :user_id)",
+        self.cursor.execute("INSERT INTO accounts VALUES (:id, :name, :url, :username, :password, :salt, :nonce, :tag, :user_id)",
                        {'id': None,
                         'name': 'Company 1',
+                        'url': None,
                         'username': 'testemail@gmail.com',
                         'password': b'password',
                         'salt': b'salt',
@@ -301,13 +539,14 @@ class DatabaseUtilsTests(unittest.TestCase):
 
         self.assertIsNone(account_id)
 
-    def test_get_account_name_and_username_by_account_id_successful(self):
+    def test_get_account_name_url_and_username_by_account_id_successful(self):
         """
-        When an Account with the given id exists, returns the name and username.
+        When an Account with the given id exists, returns the name, url, and username.
         """
-        self.cursor.execute("INSERT INTO accounts VALUES (:id, :name, :username, :password, :salt, :nonce, :tag, :user_id)",
+        self.cursor.execute("INSERT INTO accounts VALUES (:id, :name, :url, :username, :password, :salt, :nonce, :tag, :user_id)",
                        {'id': None,
                         'name': 'Company 1',
+                        'url': 'https://www.example.com',
                         'username': 'testemail@gmail.com',
                         'password': b'password',
                         'salt': b'salt',
@@ -315,9 +554,10 @@ class DatabaseUtilsTests(unittest.TestCase):
                         'tag': b'tag',
                         'user_id': 1})
 
-        self.cursor.execute("INSERT INTO accounts VALUES (:id, :name, :username, :password, :salt, :nonce, :tag, :user_id)",
+        self.cursor.execute("INSERT INTO accounts VALUES (:id, :name, :url, :username, :password, :salt, :nonce, :tag, :user_id)",
                        {'id': None,
                         'name': 'Company 2',
+                        'url': None,
                         'username': 'otheremail@gmail.com',
                         'password': b'password',
                         'salt': b'salt',
@@ -325,28 +565,29 @@ class DatabaseUtilsTests(unittest.TestCase):
                         'tag': b'tag',
                         'user_id': 2})
 
-        account_name_and_username = get_account_name_and_username_by_account_id(account_id=1, connection=self.connection)
-        account_name_and_username_2 = get_account_name_and_username_by_account_id(account_id=2, connection=self.connection)
+        account_name_url_and_username = get_account_name_url_and_username_by_account_id(account_id=1, connection=self.connection)
+        account_name_url_and_username_2 = get_account_name_url_and_username_by_account_id(account_id=2, connection=self.connection)
 
-        self.assertEquals(('Company 1', 'testemail@gmail.com'), account_name_and_username)
-        self.assertEquals(('Company 2', 'otheremail@gmail.com'), account_name_and_username_2)
+        self.assertEquals(('Company 1', 'https://www.example.com', 'testemail@gmail.com'), account_name_url_and_username)
+        self.assertEquals(('Company 2', None, 'otheremail@gmail.com'), account_name_url_and_username_2)
 
-    def test_get_account_name_and_username_by_account_id_non_existent(self):
+    def test_get_account_name_url_and_username_by_account_id_non_existent(self):
         """
         When there is no existing Account with the given id, returns None.
         """
-        account_name_and_username = get_account_name_and_username_by_account_id(account_id=1, connection=self.connection)
+        account_name_and_username = get_account_name_url_and_username_by_account_id(account_id=1, connection=self.connection)
 
         self.assertIsNone(account_name_and_username)
 
 
-    def test_get_all_account_names_and_usernames_by_user_successful(self):
+    def test_get_all_account_names_urls_and_usernames_by_user_successful(self):
         """
-        When a User has associated Accounts, the name and username of each are returned.
+        When a User has associated Accounts, the name, url, and username of each are returned.
         """
-        self.cursor.execute("INSERT INTO accounts VALUES (:id, :name, :username, :password, :salt, :nonce, :tag, :user_id)",
+        self.cursor.execute("INSERT INTO accounts VALUES (:id, :name, :url, :username, :password, :salt, :nonce, :tag, :user_id)",
                        {'id': None,
                         'name': 'Company 1',
+                        'url': 'https://www.example.com',
                         'username': 'testemail@gmail.com',
                         'password': b'password',
                         'salt': b'salt',
@@ -354,9 +595,10 @@ class DatabaseUtilsTests(unittest.TestCase):
                         'tag': b'tag',
                         'user_id': 1})
 
-        self.cursor.execute("INSERT INTO accounts VALUES (:id, :name, :username, :password, :salt, :nonce, :tag, :user_id)",
+        self.cursor.execute("INSERT INTO accounts VALUES (:id, :name, :url, :username, :password, :salt, :nonce, :tag, :user_id)",
                        {'id': None,
                         'name': 'Company 2',
+                        'url': None,
                         'username': 'testemail@gmail.com',
                         'password': b'password',
                         'salt': b'salt',
@@ -364,9 +606,10 @@ class DatabaseUtilsTests(unittest.TestCase):
                         'tag': b'tag',
                         'user_id': 1})
 
-        self.cursor.execute("INSERT INTO accounts VALUES (:id, :name, :username, :password, :salt, :nonce, :tag, :user_id)",
+        self.cursor.execute("INSERT INTO accounts VALUES (:id, :name, :url, :username, :password, :salt, :nonce, :tag, :user_id)",
                        {'id': None,
                         'name': 'Company 1',
+                        'url': None,
                         'username': 'otheremail@gmail.com',
                         'password': b'password',
                         'salt': b'salt',
@@ -374,19 +617,21 @@ class DatabaseUtilsTests(unittest.TestCase):
                         'tag': b'tag',
                         'user_id': 2})
 
-        user_1_account_names_and_usernames = get_all_account_names_and_usernames_by_user_id(user_id=1, connection=self.connection)
-        user_2_account_names_and_usernames = get_all_account_names_and_usernames_by_user_id(user_id=2, connection=self.connection)
+        user_1_account_names_urls_and_usernames = get_all_account_names_urls_and_usernames_by_user_id(user_id=1, connection=self.connection)
+        user_2_account_names_urls_and_usernames = get_all_account_names_urls_and_usernames_by_user_id(user_id=2, connection=self.connection)
 
-        self.assertEquals([('Company 1', 'testemail@gmail.com'), ('Company 2', 'testemail@gmail.com'),], user_1_account_names_and_usernames)
-        self.assertEquals([('Company 1', 'otheremail@gmail.com'),], user_2_account_names_and_usernames)
+        self.assertEquals([('Company 1', 'https://www.example.com', 'testemail@gmail.com'),
+                           ('Company 2', None, 'testemail@gmail.com'), ], user_1_account_names_urls_and_usernames)
 
-    def test_get_all_account_names_and_usernames_by_user_non_existent(self):
+        self.assertEquals([('Company 1', None, 'otheremail@gmail.com'), ], user_2_account_names_urls_and_usernames)
+
+    def test_get_all_account_names_urls_and_usernames_by_user_non_existent(self):
         """
         When a User has no associated Accounts, None is returned.
         """
-        user_1_account_names_and_usernames = get_all_account_names_and_usernames_by_user_id(user_id=1, connection=self.connection)
+        user_1_account_names_urls_and_usernames = get_all_account_names_urls_and_usernames_by_user_id(user_id=1, connection=self.connection)
 
-        self.assertIsNone(user_1_account_names_and_usernames)
+        self.assertIsNone(user_1_account_names_urls_and_usernames)
 
     def get_decrypted_account_password_set_up(self) -> Tuple[str, str, str, int, int, int]:
         """
@@ -410,9 +655,10 @@ class DatabaseUtilsTests(unittest.TestCase):
         ciphertext_2, nonce_2, tag_2 = encrypt_aes_256_gcm(key_2, account_password_2)
 
         self.cursor.execute(
-            "INSERT INTO accounts VALUES (:id, :name, :login, :password, :salt, :nonce, :tag, :user_id)",
+            "INSERT INTO accounts VALUES (:id, :name, :url, :login, :password, :salt, :nonce, :tag, :user_id)",
             {'id': None,
              'name': 'Company 1',
+             'url': None,
              'login': 'testemail@gmail.com',
              'password': ciphertext,
              'salt': salt,
@@ -421,9 +667,10 @@ class DatabaseUtilsTests(unittest.TestCase):
              'user_id': user_id})
 
         self.cursor.execute(
-            "INSERT INTO accounts VALUES (:id, :name, :login, :password, :salt, :nonce, :tag, :user_id)",
+            "INSERT INTO accounts VALUES (:id, :name, :url, :login, :password, :salt, :nonce, :tag, :user_id)",
             {'id': None,
              'name': 'Company 2',
+             'url': None,
              'login': 'testemail@gmail.com',
              'password': ciphertext_2,
              'salt': salt_2,

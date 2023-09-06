@@ -13,7 +13,7 @@ from Utils.cryptography import encrypt_aes_256_gcm, derive_256_bit_salt_and_key
 # Database structure:
 # Users - id, email (unique), password (hashed)
 #
-# Accounts - id, name (unique together with User), username, password (ciphertext),
+# Accounts - id, name (unique together with User), url (optional), username, password (ciphertext),
 # salt (of the hash used to derive the encryption key from the plaintext User password), nonce, tag, fk:User (user_id)
 
 db_file = DB_NAME
@@ -36,6 +36,7 @@ cursor.execute("""CREATE TABLE users (
 cursor.execute("""CREATE TABLE accounts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL COLLATE NOCASE,
+                url TEXT COLLATE NOCASE,
                 username TEXT NOT NULL,
                 password BLOB NOT NULL,
                 salt BLOB NOT NULL,
@@ -53,8 +54,8 @@ hashed_password = ph.hash('a')
 salt, key = derive_256_bit_salt_and_key('a')
 encrypted_password, nonce, tag = encrypt_aes_256_gcm(key, 'My word, this is an unordinarily long password, '
                                                           'I wonder what it might look like in the table display. It '
-                                                          'would hopefully cause the scrollbar to appear, I would '
-                                                          'imagine, but I suppose we will have to see.')
+                                                          'would hopefully cause the scrollbar to appear, but we will '
+                                                          'have to see.')
 encrypted_password_2, nonce_2, tag_2 = encrypt_aes_256_gcm(key, 'OtherAccountPassword')
 
 # Create test users
@@ -66,11 +67,12 @@ cursor.execute("INSERT INTO users VALUES (:id, :email, :password)", {'id': None,
                                                                      'email': 'secondemail@gmail.com',
                                                                      'password': hashed_password})
 
-for i in range(1, 999):
+for i in range(1, 500):
     random_int = random.randrange(0, 27)
-    cursor.execute("INSERT INTO accounts VALUES (:id, :name, :username, :password, :salt, :nonce, :tag, :user_id)",
+    cursor.execute("INSERT INTO accounts VALUES (:id, :name, :url, :username, :password, :salt, :nonce, :tag, :user_id)",
                    {'id': None,
                     'name': f'{random_int}Company {i}',
+                    'url': 'https://www.example.com',
                     'username': f'testemail{i}@gmail.com',
                     'password': encrypted_password,
                     'salt': salt,
@@ -78,32 +80,12 @@ for i in range(1, 999):
                     'tag': tag,
                     'user_id': 1})
 
-# Create test accounts
-# cursor.execute("INSERT INTO accounts VALUES (:id, :name, :username, :password, :salt, :nonce, :tag, :user_id)",
-#                {'id': None,
-#                 'name': 'Company 1',
-#                 'username': 'testemail@gmail.com',
-#                 'password': encrypted_password,
-#                 'salt': salt,
-#                 'nonce': nonce,
-#                 'tag': tag,
-#                 'user_id': 1})
-
-# cursor.execute("INSERT INTO accounts VALUES (:id, :name, :username, :password, :salt, :nonce, :tag, :user_id)",
-#                {'id': None,
-#                 'name': 'Company 2',
-#                 'username': 'otheremail@gmail.com',
-#                 'password': encrypted_password_2,
-#                 'salt': salt,
-#                 'nonce': nonce_2,
-#                 'tag': tag_2,
-#                 'user_id': 1})
-
 # This should not work since it breaks unique(name, user_id)
 try:
-    cursor.execute("INSERT INTO accounts VALUES (:id, :name, :username, :password, :salt, :nonce, :tag, :user_id)",
+    cursor.execute("INSERT INTO accounts VALUES (:id, :name, :url, :username, :password, :salt, :nonce, :tag, :user_id)",
                    {'id': None,
                     'name': 'Company 2',
+                    'url': None,
                     'username': 'otheremail@gmail.com',
                     'password': encrypted_password,
                     'salt': salt,
@@ -113,9 +95,10 @@ try:
 except sqlite3.IntegrityError as e:
     print(f'This insert failed as expected because of the following: {e} - UNIQUE(Company2, user_id 1)')
 
-cursor.execute("INSERT INTO accounts VALUES (:id, :name, :username, :password, :salt, :nonce, :tag, :user_id)",
+cursor.execute("INSERT INTO accounts VALUES (:id, :name, :url, :username, :password, :salt, :nonce, :tag, :user_id)",
                {'id': None,
                 'name': 'Company 1',
+                'url': None,
                 'username': 'awesome_user',
                 'password': encrypted_password_2,
                 'salt': salt,
@@ -124,9 +107,10 @@ cursor.execute("INSERT INTO accounts VALUES (:id, :name, :username, :password, :
                 'user_id': 2})
 
 
-cursor.execute("INSERT INTO accounts VALUES (:id, :name, :username, :password, :salt, :nonce, :tag, :user_id)",
+cursor.execute("INSERT INTO accounts VALUES (:id, :name, :url, :username, :password, :salt, :nonce, :tag, :user_id)",
                {'id': None,
                 'name': 'Company 2',
+                'url': None,
                 'username': 'otheremail@gmail.com',
                 'password': encrypted_password,
                 'salt': salt,
