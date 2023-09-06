@@ -1,3 +1,5 @@
+import csv
+import sqlite3
 from sqlite3 import connect
 import tkinter as tk
 from tkinter import ttk
@@ -107,7 +109,7 @@ class App(customtkinter.CTk):
         self.sidebar_frame.grid(row=0, column=0, rowspan=4, sticky="nsew")
 
         # Space in between the main sidebar buttons and the styling option button
-        self.sidebar_frame.grid_rowconfigure(6, weight=1)
+        self.sidebar_frame.grid_rowconfigure(8, weight=1)
 
         self.logo_label = customtkinter.CTkLabel(self.sidebar_frame, text="CustomTkinter", font=customtkinter.CTkFont(size=20, weight="bold"))
         self.logo_label.grid(row=0, column=0, padx=20, pady=(20, 10))
@@ -127,12 +129,18 @@ class App(customtkinter.CTk):
         self.edit_account_button = customtkinter.CTkButton(self.sidebar_frame, text='Edit selected account', command=self.edit_account_button_event, width=180)
         self.edit_account_button.grid(row=5, column=0, padx=20, pady=10)
 
+        self.import_accounts_button = customtkinter.CTkButton(self.sidebar_frame, text='Import accounts', command=self.import_accounts_button_event, width=180)
+        self.import_accounts_button.grid(row=6, column=0, padx=20, pady=10)
+
+        self.export_accounts_button = customtkinter.CTkButton(self.sidebar_frame, text='Export accounts', command=self.export_accounts_button_event, width=180)
+        self.export_accounts_button.grid(row=7, column=0, padx=20, pady=10)
+
         self.appearance_mode_label = customtkinter.CTkLabel(self.sidebar_frame, text="Appearance Mode:", anchor="w")
-        self.appearance_mode_label.grid(row=7, column=0, padx=20, pady=(10, 0))
+        self.appearance_mode_label.grid(row=9, column=0, padx=20, pady=(10, 0))
 
         self.appearance_mode_optionemenu = customtkinter.CTkOptionMenu(self.sidebar_frame, values=["Light", "Dark", "System"],
                                                                        command=self.change_appearance_mode_event)
-        self.appearance_mode_optionemenu.grid(row=8, column=0, padx=20, pady=(10, 10))
+        self.appearance_mode_optionemenu.grid(row=10, column=0, padx=20, pady=(10, 10))
 
         # create main entry and button
         self.entry = customtkinter.CTkEntry(self, placeholder_text="Type to search by account name")
@@ -431,6 +439,65 @@ class App(customtkinter.CTk):
 
         self.selected_row_info_dict = self.tree.set(iid)
         self.selected_row_info_dict['iid'] = iid
+
+    def import_accounts_button_event(self):
+        csv_file = customtkinter.filedialog.askopenfile(title='Select accounts CSV file',
+                                                   filetypes=(('.csv (Microsoft Excel Comma Separated Values File)',
+                                                               '*.csv'),))
+        if csv_file:
+            accounts_that_could_not_be_added = [{}]
+            reader = csv.DictReader(csv_file)
+            for row in reader:
+                name = row['name']
+                url = row['url']
+                username = row['username']
+                password = row['password']
+
+                try:
+                    account_id = create_account(user_id=self.current_user, master_password=self.master_password,
+                                                name=name, url=url, username=username,
+                                                password=password, connection=self.connection)
+
+                    account = (get_account_name_url_and_username_by_account_id(account_id, self.connection) +
+                               (self.PASSWORD_HIDDEN_TEXT,))
+
+                    if url is None:
+                        shortened_url = ''
+                    else:
+                        shortened_url = url[0:20] + '...' if len(url) >= 23 else url
+
+                    iid = self.tree.insert(parent='', index='end',
+                                           values=(account[0], shortened_url, account[2], account[3],))
+
+                    if account[1]:
+                        self.treeview_iid_to_full_url_dict[iid] = account[1]
+
+                except (ValueError, sqlite3.IntegrityError):
+                    accounts_that_could_not_be_added.append({'name': name, 'url': url, 'username': username,
+                                                             'password': password})
+            csv_file.close()
+
+            accounts_that_could_not_be_added_length = len(accounts_that_could_not_be_added)
+            if accounts_that_could_not_be_added_length > 0:
+                ErrorMessageGUI(title='Some accounts could not be added',
+                                message_line_1=f'{accounts_that_could_not_be_added_length} accounts could not be '
+                                               f'added', message_line_2='These have been saved in not_added.csv')
+
+                with open('not_added.csv', 'w') as destination_file:
+                    header_writer = csv.writer(destination_file)
+                    header_writer.writerow(('name', 'url', 'username', 'password', ))
+
+                    writer = csv.DictWriter(destination_file, fieldnames=['name', 'url', 'username', 'password'],
+                                            lineterminator='\n')
+
+                    writer.writerows(accounts_that_could_not_be_added)
+
+                    destination_file.close()
+
+    def export_accounts_button_event(self):
+        pass
+        # csv = customtkinter.filedialog.askopenfile(title='Select accounts CSV file', filetypes=(('.csv', '*.csv'),))
+        # print(csv)
 
 
 class LoginGUI(customtkinter.CTkToplevel):

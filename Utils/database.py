@@ -56,6 +56,7 @@ def create_account(user_id: int, master_password: str, name: str, url: Optional[
     :return: the id of the created Account
     :raise ValueError: if the given user_id is invalid or if the name, username, master_password, or password are empty
     strings (or if raised by a called cryptographic function)
+    :raise Sqlite3.IntegrityError: if the passed name is already in use for another Account
     :raise argon2.exceptions.HashingError: if hashing fails
     :raise argon2.exceptions.VerifyMismatchError: if the User's hashed_password is not valid for the given
     master password
@@ -93,17 +94,21 @@ def create_account(user_id: int, master_password: str, name: str, url: Optional[
     salt, key = derive_256_bit_salt_and_key(master_password)
     encrypted_password, nonce, tag = encrypt_aes_256_gcm(key, password)
 
-    cursor.execute("""INSERT INTO accounts VALUES (:id, :name, :url, :username, :password, :salt, :nonce, :tag,
-    :user_id) RETURNING id""",
-                   {'id': None,
-                    'name': name,
-                    'url': url,
-                    'username': username,
-                    'password': encrypted_password,
-                    'salt': salt,
-                    'nonce': nonce,
-                    'tag': tag,
-                    'user_id': user_id})
+    try:
+        cursor.execute("""INSERT INTO accounts VALUES (:id, :name, :url, :username, :password, :salt, :nonce, :tag,
+        :user_id) RETURNING id""",
+                       {'id': None,
+                        'name': name,
+                        'url': url,
+                        'username': username,
+                        'password': encrypted_password,
+                        'salt': salt,
+                        'nonce': nonce,
+                        'tag': tag,
+                        'user_id': user_id})
+    except sqlite3.IntegrityError as e:
+        raise sqlite3.IntegrityError(f'The Account could not be created because this Account name is already '
+                                     f'being used for this user: {e}')
 
     account_id = cursor.fetchone()[0]
 
@@ -149,7 +154,7 @@ def edit_account(account_id: int, connection: Connection, master_password: Optio
                                                                                    'account_id': account_id})
         except sqlite3.IntegrityError as e:
             raise sqlite3.IntegrityError(f'The name could not be updated because this Account name is already '
-                                         f'being used: {e}')
+                                         f'being used for this user: {e}')
 
     if url:
         cursor.execute("UPDATE accounts SET url=:url WHERE id=:account_id", {'url': url,

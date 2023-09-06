@@ -422,7 +422,8 @@ class DatabaseUtilsTests(unittest.TestCase):
             edit_account(account_id=account_id, name=name, connection=self.connection)
         except sqlite3.IntegrityError as e:
             self.assertEquals('The name could not be updated because this Account name is already '
-                              'being used: UNIQUE constraint failed: accounts.name, accounts.user_id', str(e))
+                              'being used for this user: UNIQUE constraint failed: accounts.name, accounts.user_id',
+                              str(e))
         else:
             self.fail('Sqlite3.IntegrityError was not raised for non-unique account name')
 
