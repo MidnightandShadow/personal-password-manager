@@ -21,10 +21,10 @@ Optional goal: Chrome extension for autofill -
 
 ------------------------------------------------------------------------------------------------------------------------
 Where I left off:
-Importing and exporting passwords
-
 Generating a random secure password (and prompting the user to change their actual account info themselves):
 - Regenerate password for selected row
 - Generate password option when making a new Account
+
+Figure out where to write export and/or not added files to once packaged as a program (root directory?)
 
 ------------------------------------------------------------------------------------------------------------------------

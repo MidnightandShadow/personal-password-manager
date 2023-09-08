@@ -1,10 +1,11 @@
 import csv
 import sqlite3
+from os.path import isfile
 from sqlite3 import connect
 import tkinter as tk
 from tkinter import ttk
 from tkinter.constants import CENTER
-from typing import Optional
+from typing import Optional, Callable
 
 import darkdetect
 from pyperclip import copy
@@ -156,10 +157,12 @@ class App(customtkinter.CTk):
         self.selected_row_info_dict = None
         self.current_treeview_filter = None
         self.current_user = None
+        self.current_user_email = None
         self.master_password = None
 
-    def setup_treeview(self, user_id: int, master_password: str):
+    def setup_treeview(self, user_id: int, user_email: str, master_password: str):
         self.current_user = user_id
+        self.current_user_email = user_email
         self.master_password = master_password
 
         # define columns
@@ -306,7 +309,7 @@ class App(customtkinter.CTk):
         existing_account = get_account_id_by_account_name_and_user_id(account_name=account_name, user_id=self.current_user, connection=self.connection)
 
         if existing_account is not None:
-            ErrorMessageGUI('An account with this name already exists.', 'Please update that account entry or enter a new account name.')
+            MessageGUI('An account with this name already exists.', 'Please update that account entry or enter a new account name.')
             return
 
         account_url_dialog = customtkinter.CTkInputDialog(title='Account url', text='Enter the account\'s url if applicable')
@@ -328,7 +331,7 @@ class App(customtkinter.CTk):
                                         name=account_name, url=url, username=account_username,
                                         password=account_password, connection=self.connection)
         except ValueError:
-            ErrorMessageGUI(title='Blank field', message_line_1='Please do not leave the account name, username, or password blank.')
+            MessageGUI(title='Blank field', message_line_1='Please do not leave the account name, username, or password blank.')
             return
 
         account = (get_account_name_url_and_username_by_account_id(account_id, self.connection) +
@@ -346,8 +349,8 @@ class App(customtkinter.CTk):
 
     def copy_url_button_event(self):
         if not self.selected_row_info_dict:
-            ErrorMessageGUI(title='No account selected', message_line_1='No account is currently selected.',
-                            message_line_2='Please select an account first and try again.')
+            MessageGUI(title='No account selected', message_line_1='No account is currently selected.',
+                       message_line_2='Please select an account first and try again.')
             return
 
         iid = self.selected_row_info_dict['iid']
@@ -355,16 +358,16 @@ class App(customtkinter.CTk):
 
     def copy_username_button_event(self):
         if not self.selected_row_info_dict:
-            ErrorMessageGUI(title='No account selected', message_line_1='No account is currently selected.',
-                            message_line_2='Please select an account first and try again.')
+            MessageGUI(title='No account selected', message_line_1='No account is currently selected.',
+                       message_line_2='Please select an account first and try again.')
             return
 
         copy(self.selected_row_info_dict['username'])
 
     def copy_password_button_event(self):
         if not self.selected_row_info_dict:
-            ErrorMessageGUI(title='No account selected', message_line_1='No account is currently selected.',
-                            message_line_2='Please select an account first and try again.')
+            MessageGUI(title='No account selected', message_line_1='No account is currently selected.',
+                       message_line_2='Please select an account first and try again.')
             return
 
         password = self.selected_row_info_dict['password']
@@ -378,8 +381,8 @@ class App(customtkinter.CTk):
 
     def edit_account_button_event(self):
         if not self.selected_row_info_dict:
-            ErrorMessageGUI(title='No account selected', message_line_1='No account is currently selected.',
-                            message_line_2='Please select an account first and try again.')
+            MessageGUI(title='No account selected', message_line_1='No account is currently selected.',
+                       message_line_2='Please select an account first and try again.')
             return
 
         account_id = get_account_id_by_account_name_and_user_id(account_name=self.selected_row_info_dict['account'],
@@ -399,7 +402,7 @@ class App(customtkinter.CTk):
         existing_account = get_account_id_by_account_name_and_user_id(account_name=account_name, user_id=self.current_user, connection=self.connection)
 
         if existing_account is not None:
-            ErrorMessageGUI('An account with this name already exists.', 'Please update that account entry or enter a new account name.')
+            MessageGUI('An account with this name already exists.', 'Please update that account entry or enter a new account name.')
             return
 
         account_url_dialog = customtkinter.CTkInputDialog(title='Account url', text='Enter the account\'s url  (leave blank or cancel for no change)')
@@ -441,49 +444,91 @@ class App(customtkinter.CTk):
         self.selected_row_info_dict['iid'] = iid
 
     def import_accounts_button_event(self):
-        csv_file = customtkinter.filedialog.askopenfile(title='Select accounts CSV file',
+        MessageGUI(title='Loading', message_line_1='The import might take a while if there are many entries.',
+                   message_line_2='Please do not close the program.', command=self.import_accounts_button_event_confirm)
+
+    def import_accounts_button_event_confirm(self):
+        csv_file_original = customtkinter.filedialog.askopenfile(title='Select accounts CSV file',
                                                    filetypes=(('.csv (Microsoft Excel Comma Separated Values File)',
                                                                '*.csv'),))
-        if csv_file:
-            accounts_that_could_not_be_added = [{}]
-            reader = csv.DictReader(csv_file)
-            for row in reader:
-                name = row['name']
-                url = row['url']
-                username = row['username']
-                password = row['password']
 
-                try:
-                    account_id = create_account(user_id=self.current_user, master_password=self.master_password,
-                                                name=name, url=url, username=username,
-                                                password=password, connection=self.connection)
+        if not csv_file_original:
+            return
 
-                    account = (get_account_name_url_and_username_by_account_id(account_id, self.connection) +
-                               (self.PASSWORD_HIDDEN_TEXT,))
+        csv_file_original.close()
 
-                    if url is None:
-                        shortened_url = ''
-                    else:
-                        shortened_url = url[0:20] + '...' if len(url) >= 23 else url
+        if csv_file_original:
+            with open(file=csv_file_original.name, mode='r', encoding='utf-8-sig') as csv_file:
+                accounts_that_could_not_be_added = []
+                reader = csv.DictReader(csv_file)
 
-                    iid = self.tree.insert(parent='', index='end',
-                                           values=(account[0], shortened_url, account[2], account[3],))
+                if len(list(reader)) == 0:
+                    MessageGUI(title='Import error', message_line_1='Please format the CSV file to have at '
+                                                                    'least these exact column names - url column is '
+                                                                    'optional: ',
+                               message_line_2='name, url, username, password')
 
-                    if account[1]:
-                        self.treeview_iid_to_full_url_dict[iid] = account[1]
+                for row in reader:
+                    try:
+                        name = row['name']
+                        url = row['url']
+                        username = row['username']
+                        password = row['password']
+                    except KeyError:
+                        MessageGUI(title='Import error', message_line_1='Please format the CSV file to have at '
+                                                                        'least these exact column names - url column '
+                                                                        'is optional: ',
+                                   message_line_2='name, url, username, password')
+                        return
 
-                except (ValueError, sqlite3.IntegrityError):
-                    accounts_that_could_not_be_added.append({'name': name, 'url': url, 'username': username,
-                                                             'password': password})
-            csv_file.close()
+                    try:
+                        account_id = create_account(user_id=self.current_user, master_password=self.master_password,
+                                                    name=name, url=url, username=username,
+                                                    password=password, connection=self.connection)
 
+                        account = (get_account_name_url_and_username_by_account_id(account_id, self.connection) +
+                                   (self.PASSWORD_HIDDEN_TEXT,))
+
+                        if url is None:
+                            shortened_url = ''
+                        else:
+                            shortened_url = url[0:20] + '...' if len(url) >= 23 else url
+
+                        iid = self.tree.insert(parent='', index='end',
+                                               values=(account[0], shortened_url, account[2], account[3],))
+
+                        if account[1]:
+                            self.treeview_iid_to_full_url_dict[iid] = account[1]
+
+                    except (ValueError, sqlite3.IntegrityError):
+                        # If all are empty, skip/only consider an Account not addable if there is at least
+                        # one field value (we want to ignore empty csv rows)
+                        if not (name == '' and url == '' and username == '' and password == ''):
+                            accounts_that_could_not_be_added.append({'name': name, 'url': url, 'username': username,
+                                                                     'password': password})
+
+                csv_file.close()
+
+            # If some Accounts could not be added due to missing required fields or duplicate names
             accounts_that_could_not_be_added_length = len(accounts_that_could_not_be_added)
-            if accounts_that_could_not_be_added_length > 0:
-                ErrorMessageGUI(title='Some accounts could not be added',
-                                message_line_1=f'{accounts_that_could_not_be_added_length} accounts could not be '
-                                               f'added', message_line_2='These have been saved in not_added.csv')
 
-                with open('not_added.csv', 'w') as destination_file:
+            if accounts_that_could_not_be_added_length > 0 and accounts_that_could_not_be_added[0]:
+
+                # Setup for not overwriting or adding to the same file, but making multiple
+                not_added_counter = 1
+                not_added_filename = "not_added{}.csv"
+                while isfile(not_added_filename.format(f'_{not_added_counter}')):
+                    not_added_counter += 1
+                filename = not_added_filename.format(f'_{not_added_counter}')
+
+                MessageGUI(title='Some accounts could not be added',
+                           message_line_1=f'{accounts_that_could_not_be_added_length} accounts could not be added '
+                                               f'due to missing info or duplicate account names.',
+                           message_line_2=f'These have been saved in {filename}. Please search the manager for '
+                                               'the entries with the corresponding account name and edit them to '
+                                               'have the correct information.')
+
+                with open(filename, 'w') as destination_file:
                     header_writer = csv.writer(destination_file)
                     header_writer.writerow(('name', 'url', 'username', 'password', ))
 
@@ -495,9 +540,47 @@ class App(customtkinter.CTk):
                     destination_file.close()
 
     def export_accounts_button_event(self):
-        pass
-        # csv = customtkinter.filedialog.askopenfile(title='Select accounts CSV file', filetypes=(('.csv', '*.csv'),))
-        # print(csv)
+        MessageGUI(title='Loading', message_line_1='The export might take a while if there are many entries.',
+                   message_line_2='Please do not close the program.', command=self.export_accounts_button_event_confirm)
+
+    def export_accounts_button_event_confirm(self):
+        accounts_to_export = [{}]
+
+        accounts = self.tree.get_children()
+
+        if len(accounts) == 0:
+            MessageGUI(title='No accounts', message_line_1='There are no accounts to export.')
+            return
+
+        for account in accounts:
+            item = self.tree.item(account)
+            account_name = item['values'][0]
+            account_url = item['values'][1]
+            account_username = item['values'][2]
+            account_password = item['values'][3]
+
+            if account_password == self.PASSWORD_HIDDEN_TEXT:
+                account_id = get_account_id_by_account_name_and_user_id(account_name, self.current_user, self.connection)
+                account_password = get_decrypted_account_password(account_id, self.master_password, self.connection)
+
+            accounts_to_export.append({'name': account_name, 'url': account_url, 'username': account_username,
+                                       'password': account_password})
+
+        filename = f'exported_passwords_{self.current_user_email}.csv'
+
+        with open(filename, 'w', encoding='utf-8-sig') as destination_file:
+            header_writer = csv.writer(destination_file)
+            header_writer.writerow(('name', 'url', 'username', 'password',))
+
+            writer = csv.DictWriter(destination_file, fieldnames=['name', 'url', 'username', 'password'],
+                                    lineterminator='\n')
+
+            writer.writerows(accounts_to_export)
+
+            destination_file.close()
+
+            MessageGUI(title='Passwords successfully exported', message_line_1=f'Your passwords have been exported to '
+                                                                               f'{filename}.')
 
 
 class LoginGUI(customtkinter.CTkToplevel):
@@ -550,12 +633,12 @@ class LoginGUI(customtkinter.CTkToplevel):
         self.entered_password = self.user_pass.get()
 
         if not self.entered_email:
-            ErrorMessageGUI(title='No Email', message_line_1='Please enter your email.')
+            MessageGUI(title='No Email', message_line_1='Please enter your email.')
         elif not regex_match(pattern=VALID_EMAIL_PATTERN, string=self.entered_email):
-            ErrorMessageGUI(title='Invalid email', message_line_1='Please enter a valid email address.')
+            MessageGUI(title='Invalid email', message_line_1='Please enter a valid email address.')
             return
         elif not self.entered_password:
-            ErrorMessageGUI(title='No password', message_line_1='Please enter your password.')
+            MessageGUI(title='No password', message_line_1='Please enter your password.')
 
         if not self.entered_email or not self.entered_password:
             return
@@ -566,11 +649,11 @@ class LoginGUI(customtkinter.CTkToplevel):
             SignupGUI(self)
 
         elif is_valid_login(self.entered_email, self.entered_password, self.connection):
-            self.parent.setup_treeview(user_id, self.entered_password)
+            self.parent.setup_treeview(user_id, self.entered_email, self.entered_password)
             self.parent.deiconify()
             self.destroy()
         else:
-            ErrorMessageGUI(title='Wrong password', message_line_1='Please check your password.')
+            MessageGUI(title='Wrong password', message_line_1='Please check your password.')
 
 
 class SignupGUI(customtkinter.CTkToplevel):
@@ -616,14 +699,14 @@ class SignupGUI(customtkinter.CTkToplevel):
         user_id = create_user(email=self.parent.entered_email, password=self.parent.entered_password,
                               connection=self.parent.connection)
 
-        self.parent.parent.setup_treeview(user_id, self.parent.entered_password)
+        self.parent.parent.setup_treeview(user_id, self.parent.entered_email, self.parent.entered_password)
         self.parent.parent.deiconify()
         self.parent.destroy()
         self.destroy()
 
 
-class ErrorMessageGUI(customtkinter.CTkToplevel):
-    def __init__(self, title: str, message_line_1: str, message_line_2: Optional[str] = None):
+class MessageGUI(customtkinter.CTkToplevel):
+    def __init__(self, title: str, message_line_1: str, message_line_2: Optional[str] = None, command: Optional[Callable] = None):
         super().__init__()
         self.attributes('-topmost', True)
         self.grid_propagate(False)
@@ -639,6 +722,9 @@ class ErrorMessageGUI(customtkinter.CTkToplevel):
 
         self.ok_button = customtkinter.CTkButton(master=self, text='Ok', command=self._ok)
         self.ok_button.pack(pady=(24, 20), padx=20)
+
+        if command:
+            self.ok_button.configure(command=lambda: [self._ok(), command()])
 
         self.update()
 
