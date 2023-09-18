@@ -4,26 +4,28 @@ Login/signup - DONE
 
 Encryption - DONE
 
-Import accounts -
+Import accounts - DONE
 
 Search accounts - DONE
 
-Encrypted export -
+Unencrypted export - DONE
 
-Unencrypted export -
+Generate/Regenerate password - DONE
 
-Generate password -
+Delete account -
 
 GUI V1 - DONE
+
+Optional goal: Encrypted export -
 
 Optional goal: Chrome extension for autofill -
 
 
 ------------------------------------------------------------------------------------------------------------------------
 Where I left off:
-Generating a random secure password (and prompting the user to change their actual account info themselves):
-- Regenerate password for selected row
-- Generate password option when making a new Account
+Delete account
+
+Potentially use thread so that program doesn't look like its crashing when reading a long CSV, implement loading state
 
 Figure out where to write export and/or not added files to once packaged as a program (root directory?)
 

@@ -1,13 +1,15 @@
-import csv
-import sqlite3
+from csv import DictReader, DictWriter, writer as csv_writer
 from os.path import isfile
-from sqlite3 import connect
-import tkinter as tk
-from tkinter import ttk
-from tkinter.constants import CENTER
+from secrets import choice
+from sqlite3 import connect, IntegrityError
+from string import ascii_letters, digits
+from tkinter import Event, StringVar
+from tkinter.constants import CENTER, VERTICAL, HORIZONTAL, END
+from tkinter.font import Font
+from tkinter.ttk import Treeview, Style, Scrollbar
 from typing import Optional, Callable
 
-import darkdetect
+from darkdetect import theme
 from pyperclip import copy
 import customtkinter
 
@@ -34,8 +36,8 @@ def fixed_map(option, style):
             elm[:2] != ('!disabled', '!selected')]
 
 
-def set_treeview_to_dark_style(treeview: ttk.Treeview):
-    style = ttk.Style()
+def set_treeview_to_dark_style(treeview: Treeview):
+    style = Style()
     style.theme_use('default')
 
     style.configure("Dark.Treeview",
@@ -55,15 +57,15 @@ def set_treeview_to_dark_style(treeview: ttk.Treeview):
               background=[('active', '#3484F0')])
 
     # Fix for treeview foreground style not working correctly
-    style = ttk.Style()
+    style = Style()
     style.map('Dark.Treeview', foreground=fixed_map('foreground', style),
               background=fixed_map('background', style))
 
     treeview.configure(style='Dark.Treeview')
 
 
-def set_treeview_to_light_style(treeview: ttk.Treeview):
-    style = ttk.Style()
+def set_treeview_to_light_style(treeview: Treeview):
+    style = Style()
     style.theme_use('default')
 
     style.configure("Light.Treeview",
@@ -74,7 +76,7 @@ def set_treeview_to_light_style(treeview: ttk.Treeview):
                     relief="flat")
 
     # Fix for treeview foreground style not working correctly
-    style = ttk.Style()
+    style = Style()
     style.map('Light.Treeview', foreground=fixed_map('foreground', style),
               background=fixed_map('background', style))
 
@@ -109,12 +111,14 @@ class App(customtkinter.CTk):
         self.sidebar_frame = customtkinter.CTkFrame(self, width=140, corner_radius=0)
         self.sidebar_frame.grid(row=0, column=0, rowspan=4, sticky="nsew")
 
-        # Space in between the main sidebar buttons and the styling option button
-        self.sidebar_frame.grid_rowconfigure(8, weight=1)
+        # Space row number in between the main sidebar buttons and the styling option button
+        self.sidebar_frame.grid_rowconfigure(9, weight=1)
 
         self.logo_label = customtkinter.CTkLabel(self.sidebar_frame, text="CustomTkinter", font=customtkinter.CTkFont(size=20, weight="bold"))
         self.logo_label.grid(row=0, column=0, padx=20, pady=(20, 10))
 
+
+        # Main sidebar buttons
         self.add_account_button = customtkinter.CTkButton(self.sidebar_frame, text='Add account', command=self.add_account_button_event, width=180)
         self.add_account_button.grid(row=1, column=0, padx=20, pady=10)
 
@@ -130,14 +134,24 @@ class App(customtkinter.CTk):
         self.edit_account_button = customtkinter.CTkButton(self.sidebar_frame, text='Edit selected account', command=self.edit_account_button_event, width=180)
         self.edit_account_button.grid(row=5, column=0, padx=20, pady=10)
 
+        self.regenerate_password_button = customtkinter.CTkButton(self.sidebar_frame,
+                                                                  text='Regenerate selected account password',
+                                                                  command=self.regenerate_password_button_event,
+                                                                  width=180)
+
+        self.regenerate_password_button._text_label.configure(wraplength=140)
+
+        self.regenerate_password_button.grid(row=6, column=0, padx=20, pady=10)
+
         self.import_accounts_button = customtkinter.CTkButton(self.sidebar_frame, text='Import accounts', command=self.import_accounts_button_event, width=180)
-        self.import_accounts_button.grid(row=6, column=0, padx=20, pady=10)
+        self.import_accounts_button.grid(row=7, column=0, padx=20, pady=10)
 
         self.export_accounts_button = customtkinter.CTkButton(self.sidebar_frame, text='Export accounts', command=self.export_accounts_button_event, width=180)
-        self.export_accounts_button.grid(row=7, column=0, padx=20, pady=10)
+        self.export_accounts_button.grid(row=8, column=0, padx=20, pady=10)
 
+        # Styling option button
         self.appearance_mode_label = customtkinter.CTkLabel(self.sidebar_frame, text="Appearance Mode:", anchor="w")
-        self.appearance_mode_label.grid(row=9, column=0, padx=20, pady=(10, 0))
+        self.appearance_mode_label.grid(row=10, column=0, padx=20, pady=(10, 0))
 
         self.appearance_mode_optionemenu = customtkinter.CTkOptionMenu(self.sidebar_frame, values=["Light", "Dark", "System"],
                                                                        command=self.change_appearance_mode_event)
@@ -151,7 +165,7 @@ class App(customtkinter.CTk):
         self.appearance_mode_optionemenu.set("System")
         self.treeview_iid_to_full_url_dict = {'': ''}
         self.PASSWORD_HIDDEN_TEXT = 'Click to show password'
-        self.tree = ttk.Treeview()
+        self.tree = Treeview()
         self.tree.bind('<1>', self.item_selected)
         self.entry.bind('<KeyRelease>', self._filter_accounts)
         self.selected_row_info_dict = None
@@ -159,6 +173,7 @@ class App(customtkinter.CTk):
         self.current_user = None
         self.current_user_email = None
         self.master_password = None
+        self.current_generated_password = None
 
     def setup_treeview(self, user_id: int, user_email: str, master_password: str):
         self.current_user = user_id
@@ -180,12 +195,12 @@ class App(customtkinter.CTk):
         # Styling
         current_appearance_mode = self.appearance_mode_optionemenu.get()
 
-        if current_appearance_mode == 'Dark' or (current_appearance_mode == 'System' and darkdetect.theme()):
+        if current_appearance_mode == 'Dark' or (current_appearance_mode == 'System' and theme()):
             set_treeview_to_dark_style(self.tree)
 
         # add a scrollbar
-        vertical_scrollbar = ttk.Scrollbar(self, orient=tk.VERTICAL, command=self.tree.yview)
-        horizontal_scrollbar = ttk.Scrollbar(self, orient=tk.HORIZONTAL, command=self.tree.xview)
+        vertical_scrollbar = Scrollbar(self, orient=VERTICAL, command=self.tree.yview)
+        horizontal_scrollbar = Scrollbar(self, orient=HORIZONTAL, command=self.tree.xview)
         self.tree.configure(yscrollcommand=vertical_scrollbar.set, xscrollcommand=horizontal_scrollbar.set)
         vertical_scrollbar.grid(row=0, column=5, sticky='ns')
         horizontal_scrollbar.grid(row=2, column=1, columnspan=5, sticky='ew')
@@ -208,7 +223,7 @@ class App(customtkinter.CTk):
         longest_url_item_width = 0
         longest_username_item_width = 0
 
-        password_item_width = tk.font.Font().measure(text=self.PASSWORD_HIDDEN_TEXT, displayof=self.tree)
+        password_item_width = Font().measure(text=self.PASSWORD_HIDDEN_TEXT, displayof=self.tree)
 
         # add data to the treeview and get the longest item width for each column
         for account in accounts:
@@ -218,9 +233,9 @@ class App(customtkinter.CTk):
             else:
                 shortened_url = account[1][0:20] + '...' if len(account[1]) >= 23 else account[1]
 
-            title_item_width = tk.font.Font().measure(text=account[0], displayof=self.tree)
-            url_item_width = tk.font.Font().measure(text=shortened_url, displayof=self.tree)
-            username_item_width = tk.font.Font().measure(text=account[2], displayof=self.tree)
+            title_item_width = Font().measure(text=account[0], displayof=self.tree)
+            url_item_width = Font().measure(text=shortened_url, displayof=self.tree)
+            username_item_width = Font().measure(text=account[2], displayof=self.tree)
 
             longest_title_item_width = title_item_width if title_item_width > longest_title_item_width else longest_title_item_width
             longest_url_item_width = url_item_width if url_item_width > longest_url_item_width else longest_url_item_width
@@ -229,7 +244,7 @@ class App(customtkinter.CTk):
             # Pad account name, url, and username with the default hidden text string (actual passwords will replace the
             # default text only once clicked on). Also, use a shortened url for the Treeview and return the full url
             # when copied.
-            iid = self.tree.insert('', tk.END, values=(account[0], shortened_url, account[2], self.PASSWORD_HIDDEN_TEXT,))
+            iid = self.tree.insert('', END, values=(account[0], shortened_url, account[2], self.PASSWORD_HIDDEN_TEXT,))
 
             if account[1]:
                 self.treeview_iid_to_full_url_dict[iid] = account[1]
@@ -257,18 +272,18 @@ class App(customtkinter.CTk):
                 account_id = get_account_id_by_account_name_and_user_id(self.tree.set(item_id, 'account'), self.current_user, self.connection)
                 password = get_decrypted_account_password(account_id, master_password=self.master_password, connection=self.connection)
                 self.tree.set(item_id, column_id, password)
-                self.tree.column(column_id, minwidth=tk.font.Font().measure(text=password, displayof=self.tree))
+                self.tree.column(column_id, minwidth=Font().measure(text=password, displayof=self.tree))
             else:
                 self.tree.set(item_id, column_id, self.PASSWORD_HIDDEN_TEXT)
 
     def change_appearance_mode_event(self, new_appearance_mode: str):
         customtkinter.set_appearance_mode(new_appearance_mode)
-        if new_appearance_mode == 'Dark' or (new_appearance_mode == 'System' and darkdetect.theme()):
+        if new_appearance_mode == 'Dark' or (new_appearance_mode == 'System' and theme()):
             set_treeview_to_dark_style(self.tree)
         else:
             set_treeview_to_light_style(self.tree)
 
-    def _filter_accounts(self, event: Optional[tk.Event] = None):
+    def _filter_accounts(self, event: Optional[Event] = None):
         """
         First removes existing filter, if one exists, before filtering.
         Filtering:
@@ -443,6 +458,71 @@ class App(customtkinter.CTk):
         self.selected_row_info_dict = self.tree.set(iid)
         self.selected_row_info_dict['iid'] = iid
 
+    def regenerate_password_button_event(self):
+        """
+        Generate a random, 15 character, multi-case, alphanumeric password using the python secrets library.
+        Assign this password to the selected account row if the user confirms they have changed the actual
+        account password accordingly, otherwise do not change the password.
+        """
+        if not self.selected_row_info_dict:
+            MessageGUI(title='No account selected', message_line_1='No account is currently selected.',
+                       message_line_2='Please select an account first and try again.')
+            return
+
+        alphabet = ascii_letters + digits
+        while True:
+            password = ''.join(choice(alphabet) for i in range(15))
+            if (
+                    sum(c.islower() for c in password) >= 3
+                    and sum(c.isupper() for c in password) >= 3
+                    and sum(c.isdigit() for c in password) >= 3
+            ):
+                break
+
+        self.current_generated_password = password
+
+        MessageGUI(title='New password',
+                   message_line_1='Your new password is displayed below. Please copy it to your account if possible.',
+                   copyable_message=password, uncloseable=True, command=self._regenerate_password_button_event_confirm)
+
+    def _regenerate_password_button_event_confirm(self):
+        """
+        Assign the generated password to the selected account row if the user confirms they have changed the actual
+        account password accordingly, otherwise do not change the password.
+        """
+        width = 400
+        height = 180
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+        x = ((screen_width / 2) - (width / 2)).__trunc__()
+        y = ((screen_height / 2) - (height / 2)).__trunc__()
+
+        regenerate_password_dialog = customtkinter.CTkInputDialog(title='Regenerate password',
+                                                                  text='Enter \"yes\" if you are sure you want to regenerate and have successfully copied over the password.')
+        regenerate_password_dialog.geometry(f'{width}x{height}+{x}+{y}')
+        user_confirmation = regenerate_password_dialog.get_input()
+
+        if not user_confirmation or user_confirmation.lower() != 'yes':
+            MessageGUI(title='New password not saved',
+                       message_line_1=f'Your account password was NOT changed!')
+            return
+
+        account_id = get_account_id_by_account_name_and_user_id(account_name=self.selected_row_info_dict['account'],
+                                                                user_id=self.current_user, connection=self.connection)
+
+        edit_account(account_id=account_id, master_password=self.master_password,
+                     password=self.current_generated_password, connection=self.connection)
+
+        iid = self.selected_row_info_dict['iid']
+
+        self.tree.set(item=iid, column='password', value=self.PASSWORD_HIDDEN_TEXT)
+
+        self.selected_row_info_dict = self.tree.set(iid)
+        self.selected_row_info_dict['iid'] = iid
+
+        MessageGUI(title='New password saved',
+                   message_line_1=f'Your account password was successfully changed!')
+
     def import_accounts_button_event(self):
         MessageGUI(title='Loading', message_line_1='The import might take a while if there are many entries.',
                    message_line_2='Please do not close the program.', command=self.import_accounts_button_event_confirm)
@@ -460,26 +540,24 @@ class App(customtkinter.CTk):
         if csv_file_original:
             with open(file=csv_file_original.name, mode='r', encoding='utf-8-sig') as csv_file:
                 accounts_that_could_not_be_added = []
-                reader = csv.DictReader(csv_file)
+                reader = DictReader(csv_file)
 
-                if len(list(reader)) == 0:
+                if not (
+                        reader.fieldnames.__contains__('name')
+                        and reader.fieldnames.__contains__('username')
+                        and reader.fieldnames.__contains__('password')
+                ):
                     MessageGUI(title='Import error', message_line_1='Please format the CSV file to have at '
                                                                     'least these exact column names - url column is '
                                                                     'optional: ',
                                message_line_2='name, url, username, password')
+                    return
 
                 for row in reader:
-                    try:
-                        name = row['name']
-                        url = row['url']
-                        username = row['username']
-                        password = row['password']
-                    except KeyError:
-                        MessageGUI(title='Import error', message_line_1='Please format the CSV file to have at '
-                                                                        'least these exact column names - url column '
-                                                                        'is optional: ',
-                                   message_line_2='name, url, username, password')
-                        return
+                    name = row['name']
+                    url = row['url'] if reader.fieldnames.__contains__('url') else None
+                    username = row['username']
+                    password = row['password']
 
                     try:
                         account_id = create_account(user_id=self.current_user, master_password=self.master_password,
@@ -500,7 +578,7 @@ class App(customtkinter.CTk):
                         if account[1]:
                             self.treeview_iid_to_full_url_dict[iid] = account[1]
 
-                    except (ValueError, sqlite3.IntegrityError):
+                    except (ValueError, IntegrityError):
                         # If all are empty, skip/only consider an Account not addable if there is at least
                         # one field value (we want to ignore empty csv rows)
                         if not (name == '' and url == '' and username == '' and password == ''):
@@ -529,10 +607,10 @@ class App(customtkinter.CTk):
                                                'have the correct information.')
 
                 with open(filename, 'w') as destination_file:
-                    header_writer = csv.writer(destination_file)
+                    header_writer = csv_writer(destination_file)
                     header_writer.writerow(('name', 'url', 'username', 'password', ))
 
-                    writer = csv.DictWriter(destination_file, fieldnames=['name', 'url', 'username', 'password'],
+                    writer = DictWriter(destination_file, fieldnames=['name', 'url', 'username', 'password'],
                                             lineterminator='\n')
 
                     writer.writerows(accounts_that_could_not_be_added)
@@ -569,10 +647,10 @@ class App(customtkinter.CTk):
         filename = f'exported_passwords_{self.current_user_email}.csv'
 
         with open(filename, 'w', encoding='utf-8-sig') as destination_file:
-            header_writer = csv.writer(destination_file)
+            header_writer = csv_writer(destination_file)
             header_writer.writerow(('name', 'url', 'username', 'password',))
 
-            writer = csv.DictWriter(destination_file, fieldnames=['name', 'url', 'username', 'password'],
+            writer = DictWriter(destination_file, fieldnames=['name', 'url', 'username', 'password'],
                                     lineterminator='\n')
 
             writer.writerows(accounts_to_export)
@@ -628,7 +706,7 @@ class LoginGUI(customtkinter.CTkToplevel):
         self.protocol("WM_DELETE_WINDOW", self.quit)
         self.bind('<Return>', self._login)
 
-    def _login(self, event: Optional[tk.Event] = None):
+    def _login(self, event: Optional[Event] = None):
         self.entered_email = str.lower(self.user_entry.get())
         self.entered_password = self.user_pass.get()
 
@@ -706,12 +784,18 @@ class SignupGUI(customtkinter.CTkToplevel):
 
 
 class MessageGUI(customtkinter.CTkToplevel):
-    def __init__(self, title: str, message_line_1: str, message_line_2: Optional[str] = None, command: Optional[Callable] = None):
+    def __init__(self, title: str, message_line_1: str, message_line_2: Optional[str] = None,
+                 copyable_message: Optional[str] = None, command: Optional[Callable] = None, uncloseable: bool = False):
         super().__init__()
-        self.attributes('-topmost', True)
+        self.lift()
         self.grid_propagate(False)
         self.grab_set()
         self.title(title)
+
+        self.uncloseable = uncloseable
+
+        self.protocol("WM_DELETE_WINDOW", self._close)
+
 
         label = customtkinter.CTkLabel(master=self, text=message_line_1, font=('', 14))
         label.pack(pady=(12, 0), padx=20)
@@ -719,6 +803,12 @@ class MessageGUI(customtkinter.CTkToplevel):
         if message_line_2:
             label_2 = customtkinter.CTkLabel(master=self, text=message_line_2, font=('', 14))
             label_2.pack(pady=(12, 0), padx=20)
+
+        if copyable_message:
+            text_variable = StringVar(master=self, value=copyable_message)
+            # entry = Entry(master=self, textvariable=text_variable, style='TLabel', font=('', 14), justify='center', state='readonly')
+            entry = customtkinter.CTkEntry(master=self, textvariable=text_variable, state='readonly', font=('', 14))
+            entry.pack(pady=(12, 0), padx=20)
 
         self.ok_button = customtkinter.CTkButton(master=self, text='Ok', command=self._ok)
         self.ok_button.pack(pady=(24, 20), padx=20)
@@ -741,8 +831,14 @@ class MessageGUI(customtkinter.CTkToplevel):
 
         self.bind('<Return>', self._ok)
 
-    def _ok(self, event: Optional[tk.Event] = None):
+    def _ok(self, event: Optional[Event] = None):
         self.destroy()
+
+    def _close(self):
+        if self.uncloseable:
+            return
+        else:
+            self.destroy()
 
 
 if __name__ == "__main__":
