@@ -126,7 +126,7 @@ def edit_account(account_id: int, connection: Connection, master_password: Optio
     Each field is optional to allow only changing one aspect of the Account. However, if the password is passed, the
     master_password must also be passed for re-encryption purposes. The changes are only committed if there is not
     an error.
-    :raise ValueError: if the given user_id is invalid or if the password is passed without the master_password
+    :raise ValueError: if the given account_id is invalid or if the password is passed without the master_password
     (or if raised by a called cryptographic function)
     :raise Sqlite3.IntegrityError: if the passed name is already in use for another Account
     :raise argon2.exceptions.HashingError: if hashing fails
@@ -167,7 +167,7 @@ def edit_account(account_id: int, connection: Connection, master_password: Optio
     if password and master_password:
         ph = PasswordHasher()
 
-        cursor.execute("SELECT user_id from accounts WHERE id=?", (account_id,))
+        cursor.execute("SELECT user_id FROM accounts WHERE id=?", (account_id,))
         user_id = cursor.fetchone()[0]
 
         hashed_password = get_login_password_by_user_id(user_id, connection)
@@ -182,6 +182,29 @@ def edit_account(account_id: int, connection: Connection, master_password: Optio
                             'account_id': account_id})
 
     connection.commit()
+    cursor.close()
+
+
+def delete_account(account_id: int, connection: Connection) -> None:
+    """
+    Removes the Account with the given id from the database.
+    :param account_id: the id for the Account to be removed
+    :param connection: the database connection to use
+    :raise ValueError: if the given account_id is invalid
+    """
+    cursor = connection.cursor()
+
+    cursor.execute("SELECT EXISTS (SELECT 1 FROM accounts WHERE id=?)", (account_id,))
+
+    account_exits = cursor.fetchone()[0]
+
+    if not account_exits:
+        raise ValueError(f'There is no Account with the given id ({account_id})')
+
+    cursor.execute("DELETE FROM accounts WHERE id=?", (account_id,))
+
+    connection.commit()
+
     cursor.close()
 
 

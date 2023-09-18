@@ -17,7 +17,7 @@ from config import DB_NAME, VALID_EMAIL_PATTERN
 from re import match as regex_match
 from Utils.database import get_all_account_names_urls_and_usernames_by_user_id, get_decrypted_account_password, \
     get_account_id_by_account_name_and_user_id, get_user_id_by_email, is_valid_login, create_user, create_account, \
-    get_account_name_url_and_username_by_account_id, edit_account
+    get_account_name_url_and_username_by_account_id, edit_account, delete_account
 
 customtkinter.set_appearance_mode('System')  # Modes: "System" (standard), "Dark", "Light"
 customtkinter.set_default_color_theme('blue')  # Themes: "blue" (standard), "green", "dark-blue"
@@ -112,7 +112,7 @@ class App(customtkinter.CTk):
         self.sidebar_frame.grid(row=0, column=0, rowspan=4, sticky="nsew")
 
         # Space row number in between the main sidebar buttons and the styling option button
-        self.sidebar_frame.grid_rowconfigure(9, weight=1)
+        self.sidebar_frame.grid_rowconfigure(10, weight=1)
 
         self.logo_label = customtkinter.CTkLabel(self.sidebar_frame, text="CustomTkinter", font=customtkinter.CTkFont(size=20, weight="bold"))
         self.logo_label.grid(row=0, column=0, padx=20, pady=(20, 10))
@@ -134,6 +134,9 @@ class App(customtkinter.CTk):
         self.edit_account_button = customtkinter.CTkButton(self.sidebar_frame, text='Edit selected account', command=self.edit_account_button_event, width=180)
         self.edit_account_button.grid(row=5, column=0, padx=20, pady=10)
 
+        self.delete_account_button = customtkinter.CTkButton(self.sidebar_frame, text='Delete selected account', command=self.delete_account_button_event, width=180)
+        self.delete_account_button.grid(row=6, column=0, padx=20, pady=10)
+
         self.regenerate_password_button = customtkinter.CTkButton(self.sidebar_frame,
                                                                   text='Regenerate selected account password',
                                                                   command=self.regenerate_password_button_event,
@@ -141,21 +144,21 @@ class App(customtkinter.CTk):
 
         self.regenerate_password_button._text_label.configure(wraplength=140)
 
-        self.regenerate_password_button.grid(row=6, column=0, padx=20, pady=10)
+        self.regenerate_password_button.grid(row=7, column=0, padx=20, pady=10)
 
         self.import_accounts_button = customtkinter.CTkButton(self.sidebar_frame, text='Import accounts', command=self.import_accounts_button_event, width=180)
-        self.import_accounts_button.grid(row=7, column=0, padx=20, pady=10)
+        self.import_accounts_button.grid(row=8, column=0, padx=20, pady=10)
 
         self.export_accounts_button = customtkinter.CTkButton(self.sidebar_frame, text='Export accounts', command=self.export_accounts_button_event, width=180)
-        self.export_accounts_button.grid(row=8, column=0, padx=20, pady=10)
+        self.export_accounts_button.grid(row=9, column=0, padx=20, pady=10)
 
         # Styling option button
         self.appearance_mode_label = customtkinter.CTkLabel(self.sidebar_frame, text="Appearance Mode:", anchor="w")
-        self.appearance_mode_label.grid(row=10, column=0, padx=20, pady=(10, 0))
+        self.appearance_mode_label.grid(row=11, column=0, padx=20, pady=(10, 0))
 
         self.appearance_mode_optionemenu = customtkinter.CTkOptionMenu(self.sidebar_frame, values=["Light", "Dark", "System"],
                                                                        command=self.change_appearance_mode_event)
-        self.appearance_mode_optionemenu.grid(row=10, column=0, padx=20, pady=(10, 10))
+        self.appearance_mode_optionemenu.grid(row=11, column=0, padx=20, pady=(10, 10))
 
         # create main entry and button
         self.entry = customtkinter.CTkEntry(self, placeholder_text="Type to search by account name")
@@ -295,13 +298,13 @@ class App(customtkinter.CTk):
             for account_and_index in self.current_treeview_filter:
                 self.tree.move(item=account_and_index[0], parent='', index=account_and_index[1])
 
-        query = self.entry.get()
+        query = self.entry.get().lower()
 
         accounts_to_detach_with_index = []
 
         for account in self.tree.get_children():
             account_name = self.tree.item(account)['values'][0]
-            if query not in str(account_name):
+            if query not in str(account_name).lower():
                 accounts_to_detach_with_index.append((account, self.tree.index(account)))
 
         for account_and_index in accounts_to_detach_with_index:
@@ -457,6 +460,45 @@ class App(customtkinter.CTk):
 
         self.selected_row_info_dict = self.tree.set(iid)
         self.selected_row_info_dict['iid'] = iid
+
+    def delete_account_button_event(self):
+        if not self.selected_row_info_dict:
+            MessageGUI(title='No account selected', message_line_1='No account is currently selected.',
+                       message_line_2='Please select an account first and try again.')
+            return
+
+        account_id = get_account_id_by_account_name_and_user_id(account_name=self.selected_row_info_dict['account'],
+                                                                user_id=self.current_user, connection=self.connection)
+
+        width = 400
+        height = 180
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+        x = ((screen_width / 2) - (width / 2)).__trunc__()
+        y = ((screen_height / 2) - (height / 2)).__trunc__()
+
+        delete_account_dialog = customtkinter.CTkInputDialog(title='Delete account',
+                                                                  text='Enter \"yes\" if you are sure you want to delete the selected account info.')
+        delete_account_dialog.geometry(f'{width}x{height}+{x}+{y}')
+        user_confirmation = delete_account_dialog.get_input()
+
+        if not user_confirmation or user_confirmation.lower() != 'yes':
+            MessageGUI(title='Account info not deleted', message_line_1=f'Your account info was NOT deleted!')
+            return
+
+        account_id = get_account_id_by_account_name_and_user_id(account_name=self.selected_row_info_dict['account'],
+                                                                user_id=self.current_user, connection=self.connection)
+
+        delete_account(account_id=account_id, connection=self.connection)
+
+        # Remove from treeview
+        iid = self.selected_row_info_dict['iid']
+
+        self.tree.delete(iid)
+
+        self.selected_row_info_dict = None
+
+        MessageGUI(title='Account info deleted', message_line_1=f'Your account info was successfully deleted!')
 
     def regenerate_password_button_event(self):
         """

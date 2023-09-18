@@ -10,7 +10,7 @@ from Utils.database import get_login_password_by_user_id, get_account_id_by_acco
     get_decrypted_account_password, get_all_account_names_urls_and_usernames_by_user_id, get_user_id_by_email, \
     is_valid_login, \
     get_all_decrypted_account_passwords_by_user_id, rehash_and_reencrypt_passwords, create_user, create_account, \
-    get_account_name_url_and_username_by_account_id, edit_account
+    get_account_name_url_and_username_by_account_id, edit_account, delete_account
 
 
 class DatabaseUtilsTests(unittest.TestCase):
@@ -213,6 +213,8 @@ class DatabaseUtilsTests(unittest.TestCase):
         Creates an Account to use in the edit account testing. Returns the master_password, the Account's id, the
         corresponding user_id, the name, the url, the username, and the password used to make the Account.
         Creates an additional account for the user with the name 'NAME' for unique name testing purposes.
+        :return: the master_password, the Account's id, the corresponding user_id, the name, the url, the username,
+        and the password used to make the Account
         """
         master_password = 'MasterPassword'
         name = 'Google'
@@ -438,7 +440,66 @@ class DatabaseUtilsTests(unittest.TestCase):
         self.assertEquals(old_password, get_decrypted_account_password(account_id, master_password, self.connection))
         self.assertEquals(user_id, new_queried_user_id)
 
+    def delete_account_setup(self) -> int:
+        """
+        Creates a User and an Account for the User, and returns the account_id so that it can later be tested for
+        deletion.
+        :return: the account_id of the created Account
+        """
+        user_id = create_user(email='totallynewemail@gmail.com', password='totally new password',
+                              connection=self.connection)
 
+        account_id = create_account(user_id=user_id, master_password='totally new password', name='Company 1',
+                                    url='https://www.example.com', username='testemail@gmail.com',
+                                    password='account_password', connection=self.connection)
+
+        return account_id
+
+    def test_delete_account_successful(self):
+        """
+        When a valid account_id is passed, the Account is deleted from the database.
+        """
+        account_id = self.delete_account_setup()
+
+        self.cursor.execute("SELECT * FROM accounts WHERE id=?", (account_id,))
+
+        account = self.cursor.fetchone()
+
+        # pre-mutation:
+        self.assertIsNotNone(account)
+
+        # mutation:
+        delete_account(account_id=account_id, connection=self.connection)
+
+        # post-mutation:
+        self.cursor.execute("SELECT * FROM accounts WHERE id=?", (account_id,))
+
+        account = self.cursor.fetchone()
+
+        self.assertIsNone(account)
+
+    def test_delete_account_does_not_exist(self):
+        """
+        When an invalid account_id is passed, a ValueError is raised.
+        """
+        account_id = 24124918
+
+        self.cursor.execute("SELECT * FROM accounts WHERE id=?", (account_id,))
+
+        account = self.cursor.fetchone()
+
+        self.assertIsNone(account)
+
+        try:
+            delete_account(account_id=account_id, connection=self.connection)
+        except ValueError as e:
+            self.assertEquals(f'There is no Account with the given id ({account_id})', str(e))
+
+        self.cursor.execute("SELECT * FROM accounts WHERE id=?", (account_id,))
+
+        account = self.cursor.fetchone()
+
+        self.assertIsNone(account)
 
     def test_get_user_id_by_email_successful(self):
         """
