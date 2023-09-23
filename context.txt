@@ -25,8 +25,6 @@ Optional goal: Chrome extension for autofill -
 
 ------------------------------------------------------------------------------------------------------------------------
 Where I left off:
-GUI Documentation (I should not have left this sorely lacking and should have done it like I did my utils documentation)
-
-Figure out where to write export and/or not added files to once packaged as a program (root directory?)
+Optional goals
 
 ------------------------------------------------------------------------------------------------------------------------
