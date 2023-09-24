@@ -776,9 +776,15 @@ class App(customtkinter.CTk):
         Accounts.
         """
         filename = customtkinter.filedialog.asksaveasfilename(
-            filetypes=(('.csv (Microsoft Excel Comma Separated Values File)', '*.csv'),)) + '.csv'
+            filetypes=(('.csv (Microsoft Excel Comma Separated Values File)', '*.csv'),))
 
-        with open(filename, 'w') as destination_file:
+        file_extension = '.csv'
+
+        # If the user clicked cancel
+        if len(filename) == 0:
+            return
+
+        with open(filename + file_extension, 'w') as destination_file:
             header_writer = csv_writer(destination_file)
             header_writer.writerow(('name', 'url', 'username', 'password',))
 
@@ -812,7 +818,12 @@ class App(customtkinter.CTk):
         filename = customtkinter.filedialog.asksaveasfilename(
             filetypes=(('.csv (Microsoft Excel Comma Separated Values File)', '*.csv'),)
         )
+
         file_extension = '.csv'
+
+        # If the user clicked cancel
+        if len(filename) == 0:
+            return
 
         for account in accounts:
             item = self.tree.item(account)
