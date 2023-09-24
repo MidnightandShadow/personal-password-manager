@@ -1,6 +1,4 @@
 from csv import DictReader, DictWriter, writer as csv_writer
-from ctypes import windll
-from os.path import isfile
 from secrets import choice
 from sqlite3 import connect, IntegrityError
 from string import ascii_letters, digits
@@ -9,7 +7,7 @@ from tkinter import Event, StringVar
 from tkinter.constants import CENTER, VERTICAL, HORIZONTAL, END
 from tkinter.font import Font, nametofont
 from tkinter.ttk import Treeview, Style, Scrollbar
-from typing import Optional, Callable, Union, List, Dict
+from typing import Optional, Callable, Union
 
 from darkdetect import theme
 from pyperclip import copy
@@ -18,6 +16,7 @@ from win32con import DESKTOPHORZRES
 from win32gui import GetDC
 from win32print import GetDeviceCaps
 
+from Database.database_setup import setup_database
 from config import DB_NAME, VALID_EMAIL_PATTERN
 from re import match as regex_match
 from Utils.database import get_all_account_names_urls_and_usernames_by_user_id, get_decrypted_account_password, \
@@ -1052,6 +1051,7 @@ class CustomPositionedInputDialogue(customtkinter.CTkInputDialog):
 
 
 if __name__ == "__main__":
+    setup_database()
     app = App()
 
     app.mainloop()

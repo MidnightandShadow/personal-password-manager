@@ -16,6 +16,9 @@ Delete account - DONE
 
 GUI V1 - DONE
 
+Optional goal: build user guide into program itself (add a button that lets them see a user guide window on Login,
+               Signup, and the sidebar of the main screen)
+
 Optional goal: threading and loading state so tkinter doesn't think it's timing out (like during big account import)
 
 Optional goal: Encrypted export -
@@ -25,6 +28,11 @@ Optional goal: Chrome extension for autofill -
 
 ------------------------------------------------------------------------------------------------------------------------
 Where I left off:
+GUI Testing
+
+Abstracting out functionality that shouldn't be defined in the GUI to elsewhere (e.g. account import, account export,
+etc.)
+
 Optional goals
 
 ------------------------------------------------------------------------------------------------------------------------
