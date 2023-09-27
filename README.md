@@ -21,7 +21,7 @@
 ---
   
 ## Background
-Personal Password Manager is a completely client-side password manager made using Python. All the information
+Personal Password Manager is a serverless password manager made using Python. All the information
 you enter lives in a database file within the application installed on your device. It uses
 [argon](https://argon2-cffi.readthedocs.io/en/stable/argon2.html)
 to hash your manager password and 256-bit AES-GCM to encrypt your account passwords. Below are instructions
@@ -45,7 +45,7 @@ as the "_internal" file also included in the zip.
 ## User Guide
 ### Login/Signup
 When opening the program, it will as you to sign up or login. Although the password manager is personal
-and completely client-side, this allows you to set up multiple profiles. For instance, you could use one
+and serverless, this allows you to set up multiple profiles. For instance, you could use one
 login for your personal accounts, another for your work accounts, another for someone else that uses
 your same computer, etc. The mandated use of an "email" for login is simply to ease remembering your
 login information.
